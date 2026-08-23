@@ -1,0 +1,217 @@
+import type { Project } from '../types'
+
+export const projects: Project[] = [
+  {
+    id: '1',
+    title: 'Свадебное приглашение — Сергей & Ольга',
+    slug: 'sergey-olga-wedding',
+    shortDescription:
+      'Персональный сайт-приглашение с программой, местом проведения и подтверждением присутствия.',
+    description:
+      'Персональный сайт-приглашение на свадьбу с программой мероприятия, информацией о месте проведения и подтверждением присутствия.',
+    task: 'Нужно было элегантно пригласить гостей, собрать RSVP и дать понятную программу дня без бумажных открыток.',
+    solution:
+      'Собрала одностраничный сайт с таймлайном, картой, блоком дресс-кода и формой подтверждения присутствия.',
+    result:
+      'Гости получили удобную ссылку вместо бумажной рассылки, а организаторы — чистый список подтверждений.',
+    categories: ['Сайт'],
+    status: 'published',
+    year: 2026,
+    eventDate: '2026-09-09',
+    coverImage: null,
+    cardImage: null,
+    gallery: [
+      '/gallery/frame-1.svg',
+      '/gallery/frame-2.svg',
+      '/gallery/frame-3.svg',
+      '/gallery/frame-4.svg',
+    ],
+    demoUrl: null,
+    websiteUrl: null,
+    githubUrl: null,
+    technologies: ['React', 'TypeScript', 'Tailwind CSS'],
+    tags: ['Свадьба', 'Приглашение', 'RSVP'],
+    responsive: true,
+    featured: true,
+    seoTitle: 'Свадебное приглашение — Сергей и Ольга | OXANA PROJECTS',
+    seoDescription:
+      'Персональный сайт-приглашение с программой, картой и подтверждением присутствия.',
+    sortOrder: 1,
+    createdAt: '2026-01-15T10:00:00.000Z',
+    updatedAt: '2026-03-01T12:00:00.000Z',
+  },
+  {
+    id: '2',
+    title: 'ТСЖ «Васильевский»',
+    slug: 'tsj-vasilevsky',
+    shortDescription:
+      'Информационный сайт для жителей дома: новости, документы, тарифы и контакты.',
+    description:
+      'Информационный сайт для жителей дома: новости, документы, тарифы, контакты и аварийная информация.',
+    task: 'Жителям было сложно находить актуальные документы, тарифы и контакты управляющей организации.',
+    solution:
+      'Сделала понятную структуру разделов, быстрый доступ к документам и блок срочных объявлений.',
+    result:
+      'Информация собрана в одном месте: жители быстрее находят нужные документы и контакты.',
+    categories: ['Сайт'],
+    status: 'published',
+    year: 2025,
+    eventDate: null,
+    coverImage: null,
+    cardImage: null,
+    gallery: [],
+    demoUrl: null,
+    websiteUrl: null,
+    githubUrl: null,
+    technologies: ['React', 'TypeScript', 'Vite'],
+    tags: ['ЖКХ', 'ТСЖ', 'Информационный сайт'],
+    responsive: true,
+    featured: true,
+    seoTitle: 'Сайт ТСЖ «Васильевский» | OXANA PROJECTS',
+    seoDescription:
+      'Информационный сайт для жителей: новости, документы, тарифы и контакты.',
+    sortOrder: 2,
+    createdAt: '2025-06-10T10:00:00.000Z',
+    updatedAt: '2025-11-20T12:00:00.000Z',
+  },
+  {
+    id: '3',
+    title: 'БухКонтроль',
+    slug: 'buhkontrol',
+    shortDescription:
+      'Система контроля организаций, налоговых сроков, задач и отчётности.',
+    description:
+      'Система контроля организаций, налоговых сроков, задач, отчётности и документов.',
+    task: 'Бухгалтерии нужен был единый контроль сроков, задач и статусов по нескольким организациям.',
+    solution:
+      'Спроектировала рабочий интерфейс с организациями, сроками, задачами и документами в одном контуре.',
+    result:
+      'Сроки и задачи перестали «теряться»: команда видит приоритеты и статусы по каждой организации.',
+    categories: ['Web-приложение'],
+    status: 'published',
+    year: 2025,
+    eventDate: null,
+    coverImage: null,
+    cardImage: null,
+    gallery: [
+      '/gallery/frame-2.svg',
+      '/gallery/frame-3.svg',
+      '/gallery/frame-1.svg',
+    ],
+    demoUrl: null,
+    websiteUrl: null,
+    githubUrl: null,
+    technologies: ['React', 'TypeScript', 'Vite'],
+    tags: ['Бухгалтерия', 'Сроки', 'Документы'],
+    responsive: true,
+    featured: true,
+    seoTitle: 'БухКонтроль — система учёта сроков | OXANA PROJECTS',
+    seoDescription:
+      'Web-приложение для контроля организаций, налоговых сроков, задач и отчётности.',
+    sortOrder: 3,
+    createdAt: '2025-03-01T10:00:00.000Z',
+    updatedAt: '2025-12-15T12:00:00.000Z',
+  },
+  {
+    id: '4',
+    title: 'ЮрКонтур',
+    slug: 'yurkontur',
+    shortDescription:
+      'Рабочая система для юридических задач, документов, сроков и контроля дел.',
+    description:
+      'Рабочая система для юридических задач, документов, сроков и контроля дел.',
+    task: 'Юристам не хватало прозрачного контроля дел, сроков и связанных документов.',
+    solution:
+      'Собрала структуру дел, задач и дедлайнов с быстрым доступом к файлам по каждому кейсу.',
+    result:
+      'Команда видит статусы дел и сроки в одном экране, меньше ручных напоминаний.',
+    categories: ['Web-приложение'],
+    status: 'published',
+    year: 2025,
+    eventDate: null,
+    coverImage: null,
+    cardImage: null,
+    gallery: [],
+    demoUrl: null,
+    websiteUrl: null,
+    githubUrl: null,
+    technologies: ['React', 'TypeScript'],
+    tags: ['Юриспруденция', 'Документы', 'Сроки'],
+    responsive: true,
+    featured: false,
+    seoTitle: 'ЮрКонтур — система для юридических дел | OXANA PROJECTS',
+    seoDescription:
+      'Рабочая система для задач, документов, сроков и контроля юридических дел.',
+    sortOrder: 4,
+    createdAt: '2025-02-12T10:00:00.000Z',
+    updatedAt: '2025-09-01T12:00:00.000Z',
+  },
+  {
+    id: '5',
+    title: 'Старый город',
+    slug: 'staryj-gorod',
+    shortDescription:
+      'Корпоративный сайт компании по аренде и продаже башенных кранов.',
+    description:
+      'Корпоративный проект компании по аренде и продаже башенных кранов.',
+    task: 'Компании нужен был современный сайт, который показывает технику и упрощает первый контакт.',
+    solution:
+      'Сделала корпоративную структуру с каталогом, преимуществами и понятным призывом к связи.',
+    result:
+      'Сайт стал основной точкой входа для заявок и презентации услуг компании.',
+    categories: ['Сайт'],
+    status: 'published',
+    year: 2024,
+    eventDate: null,
+    coverImage: null,
+    cardImage: null,
+    gallery: [],
+    demoUrl: null,
+    websiteUrl: null,
+    githubUrl: null,
+    technologies: ['React', 'Tailwind CSS'],
+    tags: ['Строительство', 'Корпоративный сайт'],
+    responsive: true,
+    featured: false,
+    seoTitle: 'Старый город — корпоративный сайт | OXANA PROJECTS',
+    seoDescription:
+      'Корпоративный сайт компании по аренде и продаже башенных кранов.',
+    sortOrder: 5,
+    createdAt: '2024-08-20T10:00:00.000Z',
+    updatedAt: '2024-12-05T12:00:00.000Z',
+  },
+  {
+    id: '6',
+    title: 'Калькулятор поступлений',
+    slug: 'kalkulyator-postupleniy',
+    shortDescription:
+      'Приложение для расчёта начислений, оплат, задолженности и отчётности.',
+    description:
+      'Приложение для расчёта начислений, оплат, задолженности и формирования отчётности.',
+    task: 'Нужно было ускорить расчёт начислений и снизить ошибки при ручных сводках.',
+    solution:
+      'Сделала интерфейс расчётов с прозрачной логикой начислений, оплат и задолженности.',
+    result:
+      'Расчёты стали быстрее и понятнее, отчётность формируется без лишней ручной работы.',
+    categories: ['Web-приложение'],
+    status: 'published',
+    year: 2024,
+    eventDate: null,
+    coverImage: null,
+    cardImage: null,
+    gallery: [],
+    demoUrl: null,
+    websiteUrl: null,
+    githubUrl: null,
+    technologies: ['React', 'TypeScript'],
+    tags: ['Финансы', 'Расчёты', 'Отчётность'],
+    responsive: true,
+    featured: false,
+    seoTitle: 'Калькулятор поступлений | OXANA PROJECTS',
+    seoDescription:
+      'Приложение для расчёта начислений, оплат, задолженности и отчётности.',
+    sortOrder: 6,
+    createdAt: '2024-05-14T10:00:00.000Z',
+    updatedAt: '2024-10-22T12:00:00.000Z',
+  },
+]
