@@ -28,7 +28,7 @@ export function ProjectCatalogControls({
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Поиск проектов"
-          className="w-full rounded-2xl border border-border bg-surface py-3.5 pr-4 pl-11 text-sm text-ink outline-none transition-colors duration-300 placeholder:text-muted focus:border-ink/30"
+          className="w-full rounded-2xl border border-border bg-surface py-3.5 pr-4 pl-11 text-sm text-ink outline-none transition-[border-color,box-shadow] duration-300 placeholder:text-muted focus:border-accent/50 focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
         />
       </label>
 
@@ -39,7 +39,7 @@ export function ProjectCatalogControls({
           onChange={(event) =>
             onSortChange(event.target.value as ProjectSortId)
           }
-          className="w-full appearance-none rounded-2xl border border-border bg-surface px-4 py-3.5 text-sm text-ink outline-none transition-colors duration-300 focus:border-ink/30"
+          className="w-full appearance-none rounded-2xl border border-border bg-surface px-4 py-3.5 text-sm text-ink outline-none transition-[border-color,box-shadow] duration-300 focus:border-accent/50 focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
         >
           {projectSortOptions.map((option) => (
             <option key={option.id} value={option.id}>

@@ -59,7 +59,7 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
         aria-describedby="confirm-dialog-description"
-        className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-[0_24px_60px_rgba(29,29,31,0.16)]"
+        className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-card"
         onClick={(event) => event.stopPropagation()}
       >
         <h2

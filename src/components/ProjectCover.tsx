@@ -65,7 +65,7 @@ export function ProjectCover({
       className={`relative overflow-hidden ${tone.panel} ${className}`}
       aria-hidden={variant !== 'detail'}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(232,215,211,0.45),transparent_45%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--theme-accent)_18%,transparent),transparent_45%)]" />
 
       <div
         className={`relative flex h-full flex-col ${

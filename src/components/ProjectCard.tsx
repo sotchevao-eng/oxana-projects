@@ -59,7 +59,7 @@ export function ProjectCard({
   return (
     <Link
       to={`/projects/${project.slug}`}
-      className="group relative flex h-full flex-col overflow-hidden rounded-[1.75rem] border border-border/80 bg-surface transition-[transform,box-shadow,border-color] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-1.5 hover:border-accent/80 hover:shadow-[0_22px_50px_rgba(29,29,31,0.08)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+      className="group relative flex h-full flex-col overflow-hidden rounded-[1.75rem] border border-border/80 bg-surface shadow-card transition-[transform,box-shadow,border-color] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-1.5 hover:border-accent/70 hover:shadow-card-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
     >
       <div
         className={`relative flex items-center justify-center overflow-hidden bg-soft px-3 py-3 sm:px-4 sm:py-4 ${styles.media}`}

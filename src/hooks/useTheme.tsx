@@ -35,6 +35,7 @@ function readStoredTheme(): ThemeMode {
 
 function applyTheme(theme: ThemeMode) {
   document.documentElement.setAttribute('data-theme', theme)
+  document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

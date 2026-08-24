@@ -16,30 +16,34 @@
   --font-display: "Unbounded", ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Светлая тема — красный неон */
+/* Светлая тема — clean premium + красный неон */
 :root,
 [data-theme="light"] {
-  --theme-bg: #070308;
-  --theme-surface: #12070c;
-  --theme-ink: #fff2f5;
-  --theme-muted: #c48a97;
-  --theme-soft: #1a0a11;
-  --theme-border: #4a1524;
-  --theme-accent: #ff2d6a;
-  --theme-brand-mid: #ff4d7a;
-  --theme-brand-deep: #ff1744;
-  --theme-brand-dark: #e6004c;
-  --theme-g1: #ff6b8a;
-  --theme-g2: #ff2d6a;
-  --theme-g3: #ff1744;
-  --theme-g4: #c4003d;
-  --theme-glow-a: rgba(255, 45, 106, 0.35);
-  --theme-glow-b: rgba(230, 0, 76, 0.22);
-  --theme-btn-shadow: rgba(255, 45, 106, 0.55);
+  color-scheme: light;
+  --theme-bg: #f8f8fa;
+  --theme-surface: #ffffff;
+  --theme-ink: #141414;
+  --theme-muted: #4f5563;
+  --theme-soft: #f2f3f7;
+  --theme-border: #e4e6ec;
+  --theme-accent: #ff3b3b;
+  --theme-brand-mid: #ff5c5c;
+  --theme-brand-deep: #e11d48;
+  --theme-brand-dark: #be123c;
+  --theme-g1: #ff7a7a;
+  --theme-g2: #ff3b3b;
+  --theme-g3: #e11d48;
+  --theme-g4: #be123c;
+  --theme-glow-a: rgba(255, 59, 59, 0.2);
+  --theme-glow-b: rgba(225, 29, 72, 0.1);
+  --theme-btn-shadow: rgba(255, 59, 59, 0.28);
+  --theme-card-shadow: rgba(20, 20, 20, 0.08);
+  --theme-elevated-shadow: rgba(20, 20, 20, 0.06);
 }
 
 /* Тёмная тема — синий неон */
 [data-theme="dark"] {
+  color-scheme: dark;
   --theme-bg: #05070d;
   --theme-surface: #0a0d14;
   --theme-ink: #f2f6ff;
@@ -57,6 +61,8 @@
   --theme-glow-a: rgba(0, 200, 255, 0.2);
   --theme-glow-b: rgba(124, 60, 255, 0.14);
   --theme-btn-shadow: rgba(23, 105, 255, 0.48);
+  --theme-card-shadow: rgba(0, 0, 0, 0.35);
+  --theme-elevated-shadow: rgba(0, 0, 0, 0.25);
 }
 
 @layer base {
@@ -154,6 +160,17 @@
     box-shadow:
       0 0 40px var(--theme-glow-a),
       0 0 80px var(--theme-glow-b);
+  }
+
+  .shadow-card {
+    box-shadow: 0 12px 32px var(--theme-elevated-shadow);
+  }
+
+  .shadow-card-hover {
+    box-shadow:
+      0 18px 44px var(--theme-card-shadow),
+      0 0 0 1px color-mix(in srgb, var(--theme-accent) 22%, transparent),
+      0 0 28px color-mix(in srgb, var(--theme-accent) 16%, transparent);
   }
 
   .shadow-brand-btn {
@@ -283,13 +300,81 @@
 
   .chip-neon-active {
     border-color: var(--theme-accent);
-    background: color-mix(in srgb, var(--theme-accent) 16%, var(--color-surface));
+    background: color-mix(in srgb, var(--theme-accent) 14%, var(--color-surface));
     color: var(--color-ink);
     box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--theme-accent) 55%, transparent),
-      0 0 12px color-mix(in srgb, var(--theme-accent) 70%, transparent),
-      0 0 28px color-mix(in srgb, var(--theme-accent) 40%, transparent),
-      inset 0 0 12px color-mix(in srgb, var(--theme-accent) 12%, transparent);
+      0 0 0 1px color-mix(in srgb, var(--theme-accent) 45%, transparent),
+      0 0 12px color-mix(in srgb, var(--theme-accent) 35%, transparent),
+      0 0 24px color-mix(in srgb, var(--theme-accent) 18%, transparent),
+      inset 0 0 12px color-mix(in srgb, var(--theme-accent) 8%, transparent);
+  }
+
+  [data-theme="light"] .chip-neon {
+    border-color: color-mix(in srgb, var(--theme-accent) 35%, var(--color-border));
+    background: var(--color-surface);
+    box-shadow:
+      0 1px 2px var(--theme-elevated-shadow),
+      0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  }
+
+  [data-theme="light"] .chip-neon:hover {
+    border-color: color-mix(in srgb, var(--theme-accent) 55%, var(--color-border));
+    box-shadow:
+      0 4px 16px color-mix(in srgb, var(--theme-accent) 14%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--theme-accent) 22%, transparent);
+  }
+
+  [data-theme="light"] .chip-neon-active {
+    color: #fff;
+    background-image: linear-gradient(
+      135deg,
+      var(--theme-g1) 0%,
+      var(--theme-g2) 45%,
+      var(--theme-g3) 100%
+    );
+    border-color: transparent;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 8px 22px var(--theme-btn-shadow);
+  }
+
+  [data-theme="light"] .nav-pill-group {
+    background: color-mix(in srgb, var(--color-surface) 92%, #fff);
+    border-color: color-mix(in srgb, var(--theme-accent) 18%, var(--color-border));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 8px 24px var(--theme-elevated-shadow);
+  }
+
+  [data-theme="light"] .glow-brand {
+    box-shadow:
+      0 0 36px color-mix(in srgb, var(--theme-accent) 18%, transparent),
+      0 0 72px color-mix(in srgb, var(--theme-accent) 8%, transparent);
+  }
+
+  [data-theme="light"] .btn-primary-volume {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.4),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+      0 3px 0 color-mix(in srgb, var(--theme-g4) 55%, #fff),
+      0 10px 24px var(--theme-btn-shadow),
+      0 18px 40px color-mix(in srgb, var(--theme-btn-shadow) 55%, transparent);
+  }
+
+  [data-theme="light"] .btn-primary-volume:hover {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+      0 4px 0 color-mix(in srgb, var(--theme-g4) 55%, #fff),
+      0 14px 30px var(--theme-btn-shadow),
+      0 24px 48px color-mix(in srgb, var(--theme-btn-shadow) 65%, transparent);
+  }
+
+  [data-theme="light"] .nav-pill-active {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.4),
+      0 2px 0 color-mix(in srgb, var(--theme-g4) 50%, #fff),
+      0 8px 20px var(--theme-btn-shadow);
   }
 
   .reveal {

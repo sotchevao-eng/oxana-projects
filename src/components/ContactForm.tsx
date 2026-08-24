@@ -11,7 +11,7 @@ import type { ContactFormData, ContactFormErrors } from '../types/contact'
 import { Button } from './Button'
 
 const fieldClassName =
-  'w-full rounded-2xl border bg-bg px-4 py-3.5 text-sm text-ink outline-none transition-colors duration-300 placeholder:text-muted focus:border-ink/30 disabled:cursor-not-allowed disabled:opacity-60'
+  'w-full rounded-2xl border bg-surface px-4 py-3.5 text-sm text-ink outline-none transition-[border-color,box-shadow] duration-300 placeholder:text-muted focus:border-accent/50 focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-60'
 
 function fieldBorder(hasError: boolean): string {
   return hasError ? 'border-red-300' : 'border-border'
