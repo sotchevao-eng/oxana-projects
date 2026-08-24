@@ -13,3 +13,8 @@ export const navItems: NavItem[] = [
 export const discussProjectPath = '/contacts'
 
 export const adminLoginPath = '/admin/login'
+
+export const legalLinks: NavItem[] = [
+  { label: 'Политика конфиденциальности', path: '/privacy' },
+  { label: 'Безопасность', path: '/security' },
+]

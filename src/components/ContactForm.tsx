@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { contactProjectTypeOptions } from '../data/contactForm'
 import {
+  CONTACT_FIELD_LIMITS,
   emptyContactForm,
   submitContactRequest,
   validateContactForm,
@@ -96,7 +98,24 @@ export function ContactForm() {
   }
 
   return (
-    <form className="space-y-5" onSubmit={handleSubmit} noValidate>
+    <form className="space-y-5" onSubmit={(event) => void handleSubmit(event)} noValidate>
+      {/* Honeypot — скрыто от пользователей, ловит автоматические заполнения */}
+      <div
+        className="absolute -left-[9999px] h-0 w-0 overflow-hidden opacity-0"
+        aria-hidden="true"
+      >
+        <label htmlFor="contact-website">Сайт</label>
+        <input
+          id="contact-website"
+          name="website"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+          value={form.website}
+          onChange={(event) => updateField('website', event.target.value)}
+        />
+      </div>
+
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="space-y-2">
           <label htmlFor="contact-name" className="text-sm text-ink">
@@ -106,6 +125,7 @@ export function ContactForm() {
             id="contact-name"
             name="name"
             value={form.name}
+            maxLength={CONTACT_FIELD_LIMITS.name}
             disabled={isSubmitting}
             onChange={(event) => updateField('name', event.target.value)}
             className={`${fieldClassName} ${fieldBorder(Boolean(errors.name))}`}
@@ -125,12 +145,16 @@ export function ContactForm() {
             id="contact-company"
             name="company"
             value={form.company}
+            maxLength={CONTACT_FIELD_LIMITS.company}
             disabled={isSubmitting}
             onChange={(event) => updateField('company', event.target.value)}
-            className={`${fieldClassName} ${fieldBorder(false)}`}
+            className={`${fieldClassName} ${fieldBorder(Boolean(errors.company))}`}
             placeholder="Если есть"
             autoComplete="organization"
           />
+          {errors.company ? (
+            <p className="text-xs text-red-500">{errors.company}</p>
+          ) : null}
         </div>
       </div>
 
@@ -144,6 +168,7 @@ export function ContactForm() {
             name="email"
             type="email"
             value={form.email}
+            maxLength={CONTACT_FIELD_LIMITS.email}
             disabled={isSubmitting}
             onChange={(event) => updateField('email', event.target.value)}
             className={`${fieldClassName} ${fieldBorder(
@@ -165,14 +190,20 @@ export function ContactForm() {
             id="contact-phone"
             name="phoneOrTelegram"
             value={form.phoneOrTelegram}
+            maxLength={CONTACT_FIELD_LIMITS.phoneOrTelegram}
             disabled={isSubmitting}
             onChange={(event) =>
               updateField('phoneOrTelegram', event.target.value)
             }
-            className={`${fieldClassName} ${fieldBorder(Boolean(errors.contact))}`}
+            className={`${fieldClassName} ${fieldBorder(
+              Boolean(errors.contact || errors.phoneOrTelegram),
+            )}`}
             placeholder="+7... или @username"
             autoComplete="tel"
           />
+          {errors.phoneOrTelegram ? (
+            <p className="text-xs text-red-500">{errors.phoneOrTelegram}</p>
+          ) : null}
         </div>
       </div>
 
@@ -215,6 +246,7 @@ export function ContactForm() {
           name="description"
           rows={5}
           value={form.description}
+          maxLength={CONTACT_FIELD_LIMITS.description}
           disabled={isSubmitting}
           onChange={(event) => updateField('description', event.target.value)}
           className={`${fieldClassName} ${fieldBorder(Boolean(errors.description))} resize-y`}
@@ -223,6 +255,31 @@ export function ContactForm() {
         {errors.description && (
           <p className="text-xs text-red-500">{errors.description}</p>
         )}
+      </div>
+
+      <div className="space-y-2 rounded-2xl border border-border bg-soft/40 p-4">
+        <label className="flex items-start gap-3 text-sm leading-relaxed text-muted">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-[var(--theme-accent)]"
+            checked={form.consent}
+            disabled={isSubmitting}
+            onChange={(event) => updateField('consent', event.target.checked)}
+          />
+          <span>
+            Я согласен(на) с обработкой персональных данных и принимаю{' '}
+            <Link
+              to="/privacy"
+              className="text-ink underline decoration-accent/50 underline-offset-2 transition-colors hover:text-accent"
+            >
+              Политику конфиденциальности
+            </Link>
+            . <span className="text-muted">*</span>
+          </span>
+        </label>
+        {errors.consent ? (
+          <p className="text-xs text-red-500">{errors.consent}</p>
+        ) : null}
       </div>
 
       {submitError && <p className="text-sm text-red-500">{submitError}</p>}

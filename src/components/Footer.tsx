@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { hasText } from '../data/siteSettings'
-import { adminLoginPath, navItems } from '../data/navigation'
+import { adminLoginPath, legalLinks, navItems } from '../data/navigation'
 import { useSiteSettings } from '../hooks/useSiteSettings'
 import { SiteContactInfo } from './SiteContactInfo'
 
@@ -51,7 +51,15 @@ export function Footer() {
             © {year} {settings.siteName}
           </p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <p>Создано с вниманием к деталям</p>
+            {legalLinks.map((item) => (
+              <Link
+                key={item.path}
+                to={item.path}
+                className="transition-colors duration-300 hover:text-ink"
+              >
+                {item.label}
+              </Link>
+            ))}
             <Link
               to={adminLoginPath}
               className="text-muted/80 transition-colors duration-300 hover:text-ink"

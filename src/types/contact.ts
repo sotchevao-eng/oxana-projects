@@ -16,9 +16,13 @@ export interface ContactFormData {
   phoneOrTelegram: string
   projectType: ContactProjectType
   description: string
+  consent: boolean
+  /** Honeypot anti-spam field — must stay empty */
+  website: string
 }
 
-export interface ContactRequestPayload extends ContactFormData {
+export interface ContactRequestPayload
+  extends Omit<ContactFormData, 'consent' | 'website'> {
   id: string
   createdAt: string
   source: 'local' | 'supabase'

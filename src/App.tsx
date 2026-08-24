@@ -20,8 +20,10 @@ import { AdminSettingsPage } from './pages/admin/AdminSettingsPage'
 import { ContactsPage } from './pages/ContactsPage'
 import { HomePage } from './pages/HomePage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import { PrivacyPage } from './pages/PrivacyPage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { ProjectsPage } from './pages/ProjectsPage'
+import { SecurityPage } from './pages/SecurityPage'
 
 export default function App() {
   return (
@@ -38,6 +40,8 @@ export default function App() {
                   <Route path="projects/:slug" element={<ProjectDetailPage />} />
                   <Route path="about" element={<AboutPage />} />
                   <Route path="contacts" element={<ContactsPage />} />
+                  <Route path="privacy" element={<PrivacyPage />} />
+                  <Route path="security" element={<SecurityPage />} />
                   <Route path="*" element={<NotFoundPage />} />
                 </Route>
 
