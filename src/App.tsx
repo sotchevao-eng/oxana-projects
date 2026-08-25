@@ -8,6 +8,7 @@ import { ThemeProvider } from './hooks/useTheme'
 import { AdminLayout } from './layouts/AdminLayout'
 import { MainLayout } from './layouts/MainLayout'
 import { AboutPage } from './pages/AboutPage'
+import { BriefPage } from './pages/BriefPage'
 import { AdminContactDetailPage } from './pages/admin/AdminContactDetailPage'
 import { AdminContactsPage } from './pages/admin/AdminContactsPage'
 import { AdminClientDetailPage } from './pages/admin/AdminClientDetailPage'
@@ -46,6 +47,7 @@ export default function App() {
                   <Route path="contacts" element={<ContactsPage />} />
                   <Route path="privacy" element={<PrivacyPage />} />
                   <Route path="security" element={<SecurityPage />} />
+                  <Route path="brief/:token" element={<BriefPage />} />
                   <Route path="*" element={<NotFoundPage />} />
                 </Route>
 

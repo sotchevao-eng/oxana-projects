@@ -1,5 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { AdminBriefAnswers } from '../../components/admin/AdminBriefAnswers'
+import { AdminBriefConstructor } from '../../components/admin/AdminBriefConstructor'
 import { Button } from '../../components/Button'
 import { DataStatus } from '../../components/DataStatus'
 import { useToast } from '../../components/ToastProvider'
@@ -21,6 +23,16 @@ import {
 const fieldClass =
   'w-full rounded-lg border border-border bg-bg px-3 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent/50 disabled:opacity-60'
 
+type TabId = 'main' | 'brief' | 'answers' | 'proposal' | 'history'
+
+const tabs: Array<{ id: TabId; label: string; ready: boolean }> = [
+  { id: 'main', label: 'Основное', ready: true },
+  { id: 'brief', label: 'Бриф', ready: true },
+  { id: 'answers', label: 'Ответы', ready: true },
+  { id: 'proposal', label: 'КП', ready: false },
+  { id: 'history', label: 'История', ready: false },
+]
+
 async function copyText(value: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(value)
@@ -33,6 +45,7 @@ async function copyText(value: string): Promise<boolean> {
 export function AdminClientProjectDetailPage() {
   const { id = '' } = useParams()
   const { showToast } = useToast()
+  const [tab, setTab] = useState<TabId>('main')
   const [project, setProject] = useState<ClientProject | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -47,6 +60,26 @@ export function AdminClientProjectDetailPage() {
     deadline: '',
     status: 'Новый',
   })
+
+  const reloadProject = useCallback(async () => {
+    if (!id) {
+      return
+    }
+    const result = await fetchClientProjectById(id)
+    if (result.data) {
+      setProject(result.data)
+      setForm({
+        title: result.data.title,
+        projectType: result.data.projectType,
+        description: result.data.description ?? '',
+        task: result.data.task ?? '',
+        notes: result.data.notes ?? '',
+        budget: result.data.budget ?? '',
+        deadline: result.data.deadline ?? '',
+        status: result.data.status,
+      })
+    }
+  }, [id])
 
   useEffect(() => {
     let active = true
@@ -167,215 +200,256 @@ export function AdminClientProjectDetailPage() {
         </span>
       </div>
 
-      <div className="grid gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-2 sm:p-5">
-        <div className="space-y-2">
-          <p className="text-xs font-medium tracking-[0.06em] text-muted uppercase">
-            Бриф
-          </p>
-          <p className="break-all text-xs text-muted">{briefUrl}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="md"
-              variant="secondary"
-              onClick={() => void handleCopy('Ссылка на бриф', briefUrl)}
-            >
-              Скопировать ссылку на бриф
-            </Button>
-            <Button href={briefUrl} variant="ghost" external>
-              Открыть бриф
-            </Button>
-          </div>
-          <p className="text-xs text-muted">
-            Публичная страница брифа появится на этапе 2.
-          </p>
-        </div>
-        <div className="space-y-2">
-          <p className="text-xs font-medium tracking-[0.06em] text-muted uppercase">
-            Коммерческое предложение
-          </p>
-          <p className="break-all text-xs text-muted">{proposalUrl}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="md"
-              variant="secondary"
-              onClick={() => void handleCopy('Ссылка на КП', proposalUrl)}
-            >
-              Скопировать ссылку на КП
-            </Button>
-            <Button href={proposalUrl} variant="ghost" external>
-              Открыть КП
-            </Button>
-          </div>
-          <p className="text-xs text-muted">
-            Публичный лендинг КП появится на этапе 3.
-          </p>
-        </div>
+      <div className="flex flex-wrap gap-2 border-b border-border pb-3">
+        {tabs.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setTab(item.id)}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              tab === item.id
+                ? 'bg-brand-gradient text-white'
+                : 'border border-border text-muted hover:text-ink'
+            }`}
+          >
+            {item.label}
+            {!item.ready ? ' · скоро' : ''}
+          </button>
+        ))}
       </div>
 
-      {project.client ? (
-        <div className="rounded-xl border border-border bg-surface p-4 sm:p-5">
-          <h2 className="text-sm font-semibold">Клиент</h2>
-          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-xs text-muted">Имя</dt>
-              <dd>{project.client.name}</dd>
+      {tab === 'main' ? (
+        <div className="space-y-5">
+          <div className="grid gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-2 sm:p-5">
+            <div className="space-y-2">
+              <p className="text-xs font-medium tracking-[0.06em] text-muted uppercase">
+                Бриф
+              </p>
+              <p className="break-all text-xs text-muted">{briefUrl}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleCopy('Ссылка на бриф', briefUrl)}
+                >
+                  Скопировать ссылку на бриф
+                </Button>
+                <Button href={briefUrl} variant="ghost" external>
+                  Открыть бриф
+                </Button>
+              </div>
             </div>
-            <div>
-              <dt className="text-xs text-muted">Компания</dt>
-              <dd>{project.client.company || '—'}</dd>
+            <div className="space-y-2">
+              <p className="text-xs font-medium tracking-[0.06em] text-muted uppercase">
+                Коммерческое предложение
+              </p>
+              <p className="break-all text-xs text-muted">{proposalUrl}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleCopy('Ссылка на КП', proposalUrl)}
+                >
+                  Скопировать ссылку на КП
+                </Button>
+                <Button href={proposalUrl} variant="ghost" external>
+                  Открыть КП
+                </Button>
+              </div>
+              <p className="text-xs text-muted">Публичный лендинг КП — этап 3.</p>
             </div>
-            <div>
-              <dt className="text-xs text-muted">Email</dt>
-              <dd>{project.client.email || '—'}</dd>
+          </div>
+
+          {project.client ? (
+            <div className="rounded-xl border border-border bg-surface p-4 sm:p-5">
+              <h2 className="text-sm font-semibold">Клиент</h2>
+              <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-muted">Имя</dt>
+                  <dd>{project.client.name}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Компания</dt>
+                  <dd>{project.client.company || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Email</dt>
+                  <dd>{project.client.email || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Телефон</dt>
+                  <dd>{project.client.phone || '—'}</dd>
+                </div>
+              </dl>
             </div>
-            <div>
-              <dt className="text-xs text-muted">Телефон</dt>
-              <dd>{project.client.phone || '—'}</dd>
+          ) : null}
+
+          <form
+            onSubmit={(event) => void handleSave(event)}
+            className="space-y-4 rounded-xl border border-border bg-surface p-4 sm:p-6"
+          >
+            <h2 className="text-sm font-semibold">Параметры проекта</h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-medium text-muted" htmlFor="edit-title">
+                  Название
+                </label>
+                <input
+                  id="edit-title"
+                  className={fieldClass}
+                  value={form.title}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, title: event.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-muted" htmlFor="edit-type">
+                  Тип
+                </label>
+                <select
+                  id="edit-type"
+                  className={fieldClass}
+                  value={form.projectType}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      projectType: event.target.value,
+                    }))
+                  }
+                >
+                  {CLIENT_PROJECT_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-muted" htmlFor="edit-status">
+                  Статус
+                </label>
+                <select
+                  id="edit-status"
+                  className={fieldClass}
+                  value={form.status}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, status: event.target.value }))
+                  }
+                >
+                  {CLIENT_PROJECT_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <label
+                  className="block text-xs font-medium text-muted"
+                  htmlFor="edit-description"
+                >
+                  Описание
+                </label>
+                <textarea
+                  id="edit-description"
+                  rows={3}
+                  className={fieldClass}
+                  value={form.description}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      description: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-medium text-muted" htmlFor="edit-task">
+                  Задача
+                </label>
+                <textarea
+                  id="edit-task"
+                  rows={3}
+                  className={fieldClass}
+                  value={form.task}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, task: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-muted" htmlFor="edit-budget">
+                  Бюджет
+                </label>
+                <input
+                  id="edit-budget"
+                  className={fieldClass}
+                  value={form.budget}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, budget: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label
+                  className="block text-xs font-medium text-muted"
+                  htmlFor="edit-deadline"
+                >
+                  Срок
+                </label>
+                <input
+                  id="edit-deadline"
+                  className={fieldClass}
+                  value={form.deadline}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, deadline: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-medium text-muted" htmlFor="edit-notes">
+                  Комментарий
+                </label>
+                <textarea
+                  id="edit-notes"
+                  rows={3}
+                  className={fieldClass}
+                  value={form.notes}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, notes: event.target.value }))
+                  }
+                />
+              </div>
             </div>
-            <div>
-              <dt className="text-xs text-muted">Мессенджер</dt>
-              <dd>{project.client.messenger || '—'}</dd>
-            </div>
-          </dl>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Сохранение...' : 'Сохранить изменения'}
+            </Button>
+          </form>
         </div>
       ) : null}
 
-      <form
-        onSubmit={(event) => void handleSave(event)}
-        className="space-y-4 rounded-xl border border-border bg-surface p-4 sm:p-6"
-      >
-        <h2 className="text-sm font-semibold">Параметры проекта</h2>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="block text-xs font-medium text-muted" htmlFor="edit-title">
-              Название
-            </label>
-            <input
-              id="edit-title"
-              className={fieldClass}
-              value={form.title}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, title: event.target.value }))
-              }
-              required
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted" htmlFor="edit-type">
-              Тип
-            </label>
-            <select
-              id="edit-type"
-              className={fieldClass}
-              value={form.projectType}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, projectType: event.target.value }))
-              }
-            >
-              {CLIENT_PROJECT_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted" htmlFor="edit-status">
-              Статус
-            </label>
-            <select
-              id="edit-status"
-              className={fieldClass}
-              value={form.status}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, status: event.target.value }))
-              }
-            >
-              {CLIENT_PROJECT_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="block text-xs font-medium text-muted" htmlFor="edit-description">
-              Описание
-            </label>
-            <textarea
-              id="edit-description"
-              rows={3}
-              className={fieldClass}
-              value={form.description}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  description: event.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="block text-xs font-medium text-muted" htmlFor="edit-task">
-              Задача
-            </label>
-            <textarea
-              id="edit-task"
-              rows={3}
-              className={fieldClass}
-              value={form.task}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, task: event.target.value }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted" htmlFor="edit-budget">
-              Бюджет
-            </label>
-            <input
-              id="edit-budget"
-              className={fieldClass}
-              value={form.budget}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, budget: event.target.value }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted" htmlFor="edit-deadline">
-              Срок
-            </label>
-            <input
-              id="edit-deadline"
-              className={fieldClass}
-              value={form.deadline}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, deadline: event.target.value }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="block text-xs font-medium text-muted" htmlFor="edit-notes">
-              Комментарий
-            </label>
-            <textarea
-              id="edit-notes"
-              rows={3}
-              className={fieldClass}
-              value={form.notes}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, notes: event.target.value }))
-              }
-            />
-          </div>
+      {tab === 'brief' ? (
+        <AdminBriefConstructor
+          project={project}
+          onProjectStatusMaybeChanged={() => void reloadProject()}
+        />
+      ) : null}
+
+      {tab === 'answers' ? <AdminBriefAnswers project={project} /> : null}
+
+      {tab === 'proposal' ? (
+        <div className="rounded-xl border border-dashed border-border px-4 py-12 text-center text-sm text-muted">
+          Конструктор коммерческого предложения появится на этапе 3.
         </div>
-        <Button type="submit" disabled={saving}>
-          {saving ? 'Сохранение...' : 'Сохранить изменения'}
-        </Button>
-      </form>
+      ) : null}
+
+      {tab === 'history' ? (
+        <div className="rounded-xl border border-dashed border-border px-4 py-12 text-center text-sm text-muted">
+          История событий проекта появится на этапе 4.
+        </div>
+      ) : null}
     </div>
   )
 }
