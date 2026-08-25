@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import {
+  BriefcaseBusiness,
   FileText,
   FolderKanban,
   LayoutDashboard,
@@ -28,6 +29,11 @@ export const adminPrimaryNav: AdminNavItem[] = [
     label: 'Проекты',
     to: '/admin/projects',
     icon: FolderKanban,
+  },
+  {
+    label: 'Клиентские проекты',
+    to: '/admin/client-projects',
+    icon: BriefcaseBusiness,
   },
   {
     label: 'Заявки',

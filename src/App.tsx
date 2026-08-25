@@ -10,6 +10,10 @@ import { MainLayout } from './layouts/MainLayout'
 import { AboutPage } from './pages/AboutPage'
 import { AdminContactDetailPage } from './pages/admin/AdminContactDetailPage'
 import { AdminContactsPage } from './pages/admin/AdminContactsPage'
+import { AdminClientDetailPage } from './pages/admin/AdminClientDetailPage'
+import { AdminClientProjectDetailPage } from './pages/admin/AdminClientProjectDetailPage'
+import { AdminClientProjectNewPage } from './pages/admin/AdminClientProjectNewPage'
+import { AdminClientProjectsPage } from './pages/admin/AdminClientProjectsPage'
 import { AdminDashboardPage } from './pages/admin/AdminDashboardPage'
 import { AdminLoginPage } from './pages/admin/AdminLoginPage'
 import { AdminNotFoundPage } from './pages/admin/AdminNotFoundPage'
@@ -56,6 +60,19 @@ export default function App() {
                       path="projects/:id/edit"
                       element={<AdminProjectEditPage />}
                     />
+                    <Route
+                      path="client-projects"
+                      element={<AdminClientProjectsPage />}
+                    />
+                    <Route
+                      path="client-projects/new"
+                      element={<AdminClientProjectNewPage />}
+                    />
+                    <Route
+                      path="client-projects/:id"
+                      element={<AdminClientProjectDetailPage />}
+                    />
+                    <Route path="clients/:id" element={<AdminClientDetailPage />} />
                     <Route path="contacts" element={<AdminContactsPage />} />
                     <Route
                       path="contacts/:id"

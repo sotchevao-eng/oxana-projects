@@ -85,6 +85,35 @@ export interface SiteSettingsRow {
   updated_at: string
 }
 
+export interface ClientRow {
+  id: string
+  name: string
+  company: string | null
+  email: string | null
+  phone: string | null
+  messenger: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface ClientProjectRow {
+  id: string
+  client_id: string
+  title: string
+  project_type: string
+  description: string | null
+  task: string | null
+  notes: string | null
+  budget: string | null
+  deadline: string | null
+  status: string
+  brief_token: string
+  proposal_token: string
+  created_at: string
+  updated_at: string
+  clients?: ClientRow | ClientRow[] | null
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -166,6 +195,55 @@ export type Database = {
         }
         Update: Partial<Database['public']['Tables']['site_settings']['Insert']>
         Relationships: []
+      }
+      clients: {
+        Row: ClientRow
+        Insert: {
+          id?: string
+          name: string
+          company?: string | null
+          email?: string | null
+          phone?: string | null
+          messenger?: string | null
+          notes?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['clients']['Insert']>
+        Relationships: []
+      }
+      client_projects: {
+        Row: ClientProjectRow
+        Insert: {
+          id?: string
+          client_id: string
+          title: string
+          project_type: string
+          description?: string | null
+          task?: string | null
+          notes?: string | null
+          budget?: string | null
+          deadline?: string | null
+          status?: string
+          brief_token: string
+          proposal_token: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<
+          Omit<Database['public']['Tables']['client_projects']['Insert'], 'brief_token' | 'proposal_token'>
+        > & {
+          brief_token?: string
+          proposal_token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'client_projects_client_id_fkey'
+            columns: ['client_id']
+            isOneToOne: false
+            referencedRelation: 'clients'
+            referencedColumns: ['id']
+          },
+        ]
       }
     }
     Views: {
