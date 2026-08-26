@@ -20,7 +20,8 @@ const ALLOWED_TYPES = new Set([
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
+    'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 function jsonResponse(data: unknown, status = 200) {
@@ -28,6 +29,11 @@ function jsonResponse(data: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
+}
+
+/** Application errors as HTTP 200 so supabase.functions.invoke returns `data`, not FunctionsHttpError. */
+function appError(code: string) {
+  return jsonResponse({ ok: false, error: code }, 200)
 }
 
 function slugKey(raw: string): string {
@@ -123,7 +129,7 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get('Authorization') ?? ''
     if (!authHeader.startsWith('Bearer ')) {
-      return jsonResponse({ ok: false, error: 'unauthorized' }, 401)
+      return appError('unauthorized')
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')
@@ -132,10 +138,10 @@ Deno.serve(async (req) => {
     const model = Deno.env.get('OPENAI_MODEL') ?? 'gpt-4.1-mini'
 
     if (!supabaseUrl || !anonKey) {
-      return jsonResponse({ ok: false, error: 'server_misconfigured' }, 500)
+      return appError('server_misconfigured')
     }
     if (!openaiKey) {
-      return jsonResponse({ ok: false, error: 'ai_not_configured' }, 500)
+      return appError('ai_not_configured')
     }
 
     const userClient = createClient(supabaseUrl, anonKey, {
@@ -144,7 +150,7 @@ Deno.serve(async (req) => {
 
     const { data: userData, error: userError } = await userClient.auth.getUser()
     if (userError || !userData.user) {
-      return jsonResponse({ ok: false, error: 'unauthorized' }, 401)
+      return appError('unauthorized')
     }
 
     const body = await req.json()
@@ -159,7 +165,7 @@ Deno.serve(async (req) => {
     )
 
     if (!projectId) {
-      return jsonResponse({ ok: false, error: 'project_required' }, 400)
+      return appError('project_required')
     }
 
     const { data: project, error: projectError } = await userClient
@@ -169,7 +175,7 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     if (projectError || !project) {
-      return jsonResponse({ ok: false, error: 'project_not_found' }, 404)
+      return appError('project_not_found')
     }
 
     const system = `You are a senior digital project strategist helping prepare a client brief questionnaire.
@@ -226,13 +232,13 @@ Create a practical brief for the client to fill in.`
     })
 
     if (!aiRes.ok) {
-      return jsonResponse({ ok: false, error: 'ai_request_failed' }, 502)
+      return appError('ai_request_failed')
     }
 
     const aiJson = await aiRes.json()
     const content = aiJson?.choices?.[0]?.message?.content
     if (!content || typeof content !== 'string') {
-      return jsonResponse({ ok: false, error: 'ai_empty' }, 502)
+      return appError('ai_empty')
     }
 
     const parsed = JSON.parse(content) as Record<string, unknown>
@@ -242,6 +248,6 @@ Create a practical brief for the client to fill in.`
     return jsonResponse({ ok: true, draft })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown'
-    return jsonResponse({ ok: false, error: message }, 400)
+    return appError(message)
   }
 })

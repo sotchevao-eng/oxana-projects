@@ -25,8 +25,17 @@ export interface GenerateBriefRequest {
   questionsCount: number
 }
 
+/** Safe diagnostics shown in admin UI (no secrets). */
+export interface GenerateBriefErrorDetails {
+  type: string
+  status?: number
+  message: string
+  body?: string
+}
+
 export interface GenerateBriefResponse {
   ok: boolean
   draft?: BriefAiDraft
   error?: string
+  details?: GenerateBriefErrorDetails
 }

@@ -17,6 +17,7 @@ import {
   replaceBriefFields,
 } from '../../services/briefService'
 import { ensureUniqueFieldKey, isValidFieldKey, slugifyFieldKey } from '../../utils/fieldKey'
+import { formatAiErrorForUi } from '../../utils/briefAiValidate'
 
 const fieldClass =
   'w-full rounded-lg border border-border bg-bg px-3 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent/50'
@@ -135,7 +136,11 @@ export function AdminBriefAiModal({
     setGenerating(false)
 
     if (!result.ok || !result.draft) {
-      setError(result.error ?? 'Не удалось сгенерировать бриф.')
+      setError(
+        formatAiErrorForUi(result.details, result.error) ||
+          result.error ||
+          'Не удалось сгенерировать бриф.',
+      )
       return
     }
 
@@ -459,7 +464,10 @@ export function AdminBriefAiModal({
           )}
 
           {error ? (
-            <p className="mt-4 rounded-xl border border-red-300/50 bg-soft px-4 py-3 text-sm">
+            <p
+              role="alert"
+              className="mt-4 whitespace-pre-wrap rounded-xl border border-red-300/50 bg-soft px-4 py-3 font-mono text-xs leading-relaxed text-ink"
+            >
               {error}
             </p>
           ) : null}

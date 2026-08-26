@@ -1,8 +1,15 @@
 import { BRIEF_FIELD_TYPES, type BriefFieldType } from '../types/brief'
-import type { BriefAiDraft, BriefAiFieldDraft } from '../types/briefAi'
+import type {
+  BriefAiDraft,
+  BriefAiFieldDraft,
+  GenerateBriefErrorDetails,
+} from '../types/briefAi'
 import { ensureUniqueFieldKey, isValidFieldKey, slugifyFieldKey } from './fieldKey'
 
 const ALLOWED = new Set<string>(BRIEF_FIELD_TYPES)
+
+const SENSITIVE =
+  /(authorization|access_token|refresh_token|api[_-]?key|openai|bearer\s+[a-z0-9._-]+|eyJ[a-z0-9_-]+\.[a-z0-9_-]+)/gi
 
 export function normalizeAiFieldKey(raw: string, label: string): string {
   const fromKey = raw.trim()
@@ -10,6 +17,14 @@ export function normalizeAiFieldKey(raw: string, label: string): string {
     ? fromKey
     : slugifyFieldKey(fromKey || label)
   return base || 'field'
+}
+
+export function sanitizeAiDebugText(value: string, maxLen = 800): string {
+  const cleaned = value
+    .replace(SENSITIVE, '[redacted]')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return cleaned.length > maxLen ? `${cleaned.slice(0, maxLen)}…` : cleaned
 }
 
 export function validateBriefAiDraft(
@@ -39,9 +54,7 @@ export function validateBriefAiDraft(
     const label = String(item.label ?? item.Label ?? '').trim()
     if (!label) continue
 
-    const rawKey = String(
-      item.fieldKey ?? item.field_key ?? '',
-    ).trim()
+    const rawKey = String(item.fieldKey ?? item.field_key ?? '').trim()
     const uniqueKey = ensureUniqueFieldKey(
       normalizeAiFieldKey(rawKey, label),
       used,
@@ -98,6 +111,8 @@ export function friendlyAiError(code?: string): string {
       return 'Нужна авторизация администратора.'
     case 'ai_not_configured':
       return 'ИИ не настроен. Добавьте OPENAI_API_KEY в Supabase Secrets.'
+    case 'server_misconfigured':
+      return 'Edge Function настроена неверно (SUPABASE_URL / ANON_KEY).'
     case 'project_not_found':
       return 'Проект не найден или нет доступа.'
     case 'project_required':
@@ -109,12 +124,35 @@ export function friendlyAiError(code?: string): string {
       return 'ИИ не вернул вопросы.'
     case 'too_many_fields':
       return 'Слишком много вопросов (максимум 20).'
-    case 'Failed to send a request to the Edge Function':
-    case 'Edge Function returned a non-2xx status code':
-      return 'Edge Function недоступна. Проверьте деплой generate-brief.'
+    case 'no_session':
+      return 'Сессия не найдена. Войдите в админку снова.'
     default:
       return code?.trim()
         ? code
         : 'Не удалось сгенерировать бриф. Попробуйте ещё раз.'
   }
+}
+
+export function formatAiErrorForUi(
+  details?: GenerateBriefErrorDetails,
+  fallback?: string,
+): string {
+  if (!details) {
+    return fallback ?? 'Не удалось сгенерировать бриф.'
+  }
+
+  const lines = [
+    friendlyAiError(fallback ?? details.message),
+    `type: ${details.type}`,
+  ]
+  if (typeof details.status === 'number') {
+    lines.push(`status: ${details.status}`)
+  }
+  if (details.message) {
+    lines.push(`message: ${sanitizeAiDebugText(details.message, 240)}`)
+  }
+  if (details.body) {
+    lines.push(`body: ${sanitizeAiDebugText(details.body, 400)}`)
+  }
+  return lines.join('\n')
 }
