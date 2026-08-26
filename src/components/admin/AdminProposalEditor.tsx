@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { ArrowDown, ArrowUp, Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
 import { Button } from '../Button'
 import { useToast } from '../ToastProvider'
+import { AdminProposalAiModal } from './AdminProposalAiModal'
 import type { ClientProject } from '../../types/clientProject'
 import {
   PROPOSAL_SECTION_TYPE_LABELS,
@@ -52,6 +53,7 @@ export function AdminProposalEditor({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
 
   const proposalUrl = getProposalPublicUrl(project.proposalToken)
 
@@ -265,14 +267,14 @@ export function AdminProposalEditor({
         <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center">
           <p className="text-sm text-ink">КП ещё не создано</p>
           <p className="mt-1 text-xs text-muted">
-            Создайте вручную или позже сгенерируйте с ИИ (этап 3.3).
+            Создайте вручную или сгенерируйте черновик с ИИ.
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <Button type="button" disabled={saving} onClick={() => void handleCreate()}>
               {saving ? 'Создание...' : 'Создать вручную'}
             </Button>
-            <Button type="button" variant="ghost" disabled>
-              Сгенерировать с ИИ (скоро)
+            <Button type="button" variant="ghost" onClick={() => setAiOpen(true)}>
+              Сгенерировать КП с ИИ
             </Button>
           </div>
         </div>
@@ -488,12 +490,24 @@ export function AdminProposalEditor({
                     : 'Опубликовать'}
               </Button>
             ) : null}
-            <Button type="button" variant="ghost" disabled>
-              Сгенерировать с ИИ (скоро)
+            <Button type="button" variant="ghost" onClick={() => setAiOpen(true)}>
+              Сгенерировать КП с ИИ
             </Button>
           </div>
         </form>
       ) : null}
+
+      <AdminProposalAiModal
+        open={aiOpen}
+        project={project}
+        initialPrice={form.price || project.budget || ''}
+        initialDeadline={form.deadline || project.deadline || ''}
+        onClose={() => setAiOpen(false)}
+        onApplied={() => {
+          void load()
+          onProjectStatusMaybeChanged?.()
+        }}
+      />
     </div>
   )
 }

@@ -5,6 +5,7 @@ import type {
   ProposalStatus,
   PublicProposalPayload,
 } from '../types/proposal'
+import type { ProposalAiDraft, ProposalAiStyle } from '../types/proposalAi'
 import { getSupabaseClient, isSupabaseConfigured } from './supabaseClient'
 
 interface ProposalRow {
@@ -382,4 +383,108 @@ export async function fetchPublicProposal(
   }
 
   return { data: payload, error: null }
+}
+
+export async function applyProposalAiDraft(
+  projectId: string,
+  draft: ProposalAiDraft,
+  admin: { price: string; deadline: string },
+): Promise<{ ok: boolean; data?: Proposal; error?: string }> {
+  const values: ProposalFormValues = {
+    title: draft.title.trim() || 'Коммерческое предложение',
+    subtitle: draft.subtitle.trim(),
+    intro: draft.intro.trim(),
+    price: admin.price.trim(),
+    deadline: admin.deadline.trim(),
+    status: 'ready',
+    sections: draft.sections.map((section, index) => ({
+      sectionType: section.sectionType,
+      title: section.title,
+      content: section.content,
+      sortOrder: index,
+      visible: section.visible !== false,
+    })),
+  }
+
+  const existing = await fetchProposalByProjectId(projectId)
+  if (existing.error && !existing.data) {
+    return { ok: false, error: existing.error }
+  }
+
+  if (existing.data) {
+    const { client, error } = requireClient()
+    if (!client) {
+      return { ok: false, error: error ?? undefined }
+    }
+
+    const { error: updateError } = await client
+      .from('proposals')
+      .update({
+        title: toNullable(values.title),
+        subtitle: toNullable(values.subtitle),
+        intro: toNullable(values.intro),
+        price: toNullable(values.price),
+        deadline: toNullable(values.deadline),
+        status: 'ready',
+        published: false,
+      })
+      .eq('id', existing.data.id)
+
+    if (updateError) {
+      return { ok: false, error: friendlyError(updateError.message) }
+    }
+
+    const synced = await syncSections(existing.data.id, values.sections)
+    if (!synced.ok) {
+      return { ok: false, error: synced.error }
+    }
+
+    const loaded = await fetchProposalByProjectId(projectId)
+    return {
+      ok: Boolean(loaded.data),
+      data: loaded.data ?? undefined,
+      error: loaded.error ?? undefined,
+    }
+  }
+
+  return createProposal(projectId, values)
+}
+
+export async function logProposalAiGeneration(params: {
+  projectId: string
+  proposalStyle: ProposalAiStyle
+  hasPrice: boolean
+  hasDeadline: boolean
+  commentLength: number
+  briefAnswersCount: number
+  model?: string
+  draft: ProposalAiDraft
+}): Promise<void> {
+  const { client } = requireClient()
+  if (!client) {
+    return
+  }
+
+  const {
+    data: { user },
+  } = await client.auth.getUser()
+
+  await client.from('ai_generations').insert({
+    project_id: params.projectId,
+    generation_type: 'proposal',
+    model: params.model ?? null,
+    created_by: user?.id ?? null,
+    input_json: {
+      proposal_style: params.proposalStyle,
+      has_price: params.hasPrice,
+      has_deadline: params.hasDeadline,
+      comment_length: params.commentLength,
+      brief_answers_count: params.briefAnswersCount,
+    },
+    output_json: {
+      title: params.draft.title,
+      sections_count: params.draft.sections.length,
+      section_types: params.draft.sections.map((s) => s.sectionType),
+    },
+  })
 }
