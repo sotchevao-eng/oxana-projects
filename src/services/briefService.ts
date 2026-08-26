@@ -140,6 +140,39 @@ function friendlyPublicError(code?: string): string {
   }
 }
 
+function friendlyAdminError(message?: string | null): string {
+  if (!message) {
+    return 'Не удалось выполнить действие. Попробуйте ещё раз.'
+  }
+  const lower = message.toLowerCase()
+  if (
+    lower.includes('brief_fields') ||
+    lower.includes('brief_submissions') ||
+    lower.includes('brief_answers') ||
+    lower.includes('schema cache') ||
+    lower.includes('does not exist') ||
+    lower.includes('could not find the table')
+  ) {
+    return 'Таблицы брифа ещё не созданы. Выполните supabase/brief-module.sql в Supabase SQL Editor.'
+  }
+  if (lower.includes('jwt') || lower.includes('not authenticated')) {
+    return 'Сессия истекла. Войдите в админку снова.'
+  }
+  return message
+}
+
+async function markBriefPrepared(projectId: string): Promise<void> {
+  const { client } = requireClient()
+  if (!client) {
+    return
+  }
+  await client
+    .from('client_projects')
+    .update({ status: 'Бриф подготовлен' })
+    .eq('id', projectId)
+    .eq('status', 'Новый')
+}
+
 export async function fetchBriefFields(
   projectId: string,
 ): Promise<{ data: BriefField[]; error: string | null }> {
@@ -156,7 +189,7 @@ export async function fetchBriefFields(
     .order('created_at', { ascending: true })
 
   if (queryError) {
-    return { data: [], error: queryError.message }
+    return { data: [], error: friendlyAdminError(queryError.message) }
   }
 
   return {
@@ -206,9 +239,13 @@ export async function createBriefField(
     }
     return {
       ok: false,
-      error: insertError?.message ?? 'Не удалось добавить вопрос',
+      error: friendlyAdminError(
+        insertError?.message ?? 'Не удалось добавить вопрос',
+      ),
     }
   }
+
+  await markBriefPrepared(projectId)
 
   return { ok: true, data: mapField(data as BriefFieldRow) }
 }
@@ -254,7 +291,9 @@ export async function updateBriefField(
     }
     return {
       ok: false,
-      error: updateError?.message ?? 'Не удалось обновить вопрос',
+      error: friendlyAdminError(
+        updateError?.message ?? 'Не удалось обновить вопрос',
+      ),
     }
   }
 
@@ -275,7 +314,7 @@ export async function deleteBriefField(
     .eq('id', fieldId)
 
   if (deleteError) {
-    return { ok: false, error: deleteError.message }
+    return { ok: false, error: friendlyAdminError(deleteError.message) }
   }
 
   return { ok: true }
@@ -296,7 +335,7 @@ export async function reorderBriefFields(
   const results = await Promise.all(updates)
   const failed = results.find((result) => result.error)
   if (failed?.error) {
-    return { ok: false, error: failed.error.message }
+    return { ok: false, error: friendlyAdminError(failed.error.message) }
   }
 
   return { ok: true }
@@ -335,7 +374,11 @@ export async function applyWebsiteBriefTemplate(
 
   const { error: insertError } = await client.from('brief_fields').insert(rows)
   if (insertError) {
-    return { ok: false, added: 0, error: insertError.message }
+    return {
+      ok: false,
+      added: 0,
+      error: friendlyAdminError(insertError.message),
+    }
   }
 
   await client
@@ -345,6 +388,144 @@ export async function applyWebsiteBriefTemplate(
     .eq('status', 'Новый')
 
   return { ok: true, added: toCreate.length }
+}
+
+export async function appendBriefFields(
+  projectId: string,
+  fields: BriefFieldInput[],
+): Promise<{ ok: boolean; added: number; error?: string }> {
+  if (fields.length === 0) {
+    return { ok: false, added: 0, error: 'Нет вопросов для сохранения' }
+  }
+
+  const { client, error } = requireClient()
+  if (!client) {
+    return { ok: false, added: 0, error: error ?? undefined }
+  }
+
+  const existing = await fetchBriefFields(projectId)
+  if (existing.error) {
+    return { ok: false, added: 0, error: existing.error }
+  }
+
+  const usedKeys = existing.data.map((field) => field.fieldKey)
+  const startOrder = existing.data.length
+  const rows = []
+
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index]
+    if (!field.label.trim() || !isValidFieldKey(field.fieldKey)) {
+      continue
+    }
+    let key = field.fieldKey
+    if (usedKeys.includes(key)) {
+      let n = 2
+      while (usedKeys.includes(`${field.fieldKey}_${n}`)) {
+        n += 1
+      }
+      key = `${field.fieldKey}_${n}`
+    }
+    usedKeys.push(key)
+    rows.push({
+      project_id: projectId,
+      label: field.label.trim(),
+      field_key: key,
+      field_type: field.fieldType,
+      placeholder: toNullable(field.placeholder),
+      help_text: toNullable(field.helpText),
+      required: field.required,
+      options: field.options.length > 0 ? field.options : null,
+      sort_order: startOrder + rows.length,
+    })
+  }
+
+  if (rows.length === 0) {
+    return { ok: false, added: 0, error: 'Нет валидных вопросов для сохранения' }
+  }
+
+  const { error: insertError } = await client.from('brief_fields').insert(rows)
+  if (insertError) {
+    return {
+      ok: false,
+      added: 0,
+      error: friendlyAdminError(insertError.message),
+    }
+  }
+
+  await markBriefPrepared(projectId)
+  return { ok: true, added: rows.length }
+}
+
+export async function replaceBriefFields(
+  projectId: string,
+  fields: BriefFieldInput[],
+): Promise<{ ok: boolean; added: number; error?: string }> {
+  if (fields.length === 0) {
+    return { ok: false, added: 0, error: 'Нет вопросов для сохранения' }
+  }
+
+  const { client, error } = requireClient()
+  if (!client) {
+    return { ok: false, added: 0, error: error ?? undefined }
+  }
+
+  const { error: deleteError } = await client
+    .from('brief_fields')
+    .delete()
+    .eq('project_id', projectId)
+
+  if (deleteError) {
+    return {
+      ok: false,
+      added: 0,
+      error: friendlyAdminError(deleteError.message),
+    }
+  }
+
+  const usedKeys: string[] = []
+  const rows = []
+
+  for (const field of fields) {
+    if (!field.label.trim() || !isValidFieldKey(field.fieldKey)) {
+      continue
+    }
+    let key = field.fieldKey
+    if (usedKeys.includes(key)) {
+      let n = 2
+      while (usedKeys.includes(`${field.fieldKey}_${n}`)) {
+        n += 1
+      }
+      key = `${field.fieldKey}_${n}`
+    }
+    usedKeys.push(key)
+    rows.push({
+      project_id: projectId,
+      label: field.label.trim(),
+      field_key: key,
+      field_type: field.fieldType,
+      placeholder: toNullable(field.placeholder),
+      help_text: toNullable(field.helpText),
+      required: field.required,
+      options: field.options.length > 0 ? field.options : null,
+      sort_order: rows.length,
+    })
+  }
+
+  if (rows.length === 0) {
+    return { ok: false, added: 0, error: 'Нет валидных вопросов для сохранения' }
+  }
+
+  const { error: insertError } = await client.from('brief_fields').insert(rows)
+  if (insertError) {
+    return {
+      ok: false,
+      added: 0,
+      error: friendlyAdminError(insertError.message),
+    }
+  }
+
+  await markBriefPrepared(projectId)
+  return { ok: true, added: rows.length }
 }
 
 export async function fetchLatestBriefSubmission(
@@ -359,17 +540,23 @@ export async function fetchLatestBriefSubmission(
     return { data: null, answers: [], error }
   }
 
-  const { data: submission, error: submissionError } = await client
+  const { data: submissions, error: submissionError } = await client
     .from('brief_submissions')
     .select('*')
     .eq('project_id', projectId)
     .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
 
   if (submissionError) {
-    return { data: null, answers: [], error: submissionError.message }
+    return {
+      data: null,
+      answers: [],
+      error: friendlyAdminError(submissionError.message),
+    }
   }
+
+  const rows = (submissions ?? []) as BriefSubmissionRow[]
+  const submission =
+    rows.find((row) => row.status === 'submitted') ?? rows[0] ?? null
 
   if (!submission) {
     return { data: null, answers: [], error: null }
@@ -378,18 +565,18 @@ export async function fetchLatestBriefSubmission(
   const { data: answers, error: answersError } = await client
     .from('brief_answers')
     .select('*')
-    .eq('submission_id', (submission as BriefSubmissionRow).id)
+    .eq('submission_id', submission.id)
 
   if (answersError) {
     return {
-      data: mapSubmission(submission as BriefSubmissionRow),
+      data: mapSubmission(submission),
       answers: [],
-      error: answersError.message,
+      error: friendlyAdminError(answersError.message),
     }
   }
 
   return {
-    data: mapSubmission(submission as BriefSubmissionRow),
+    data: mapSubmission(submission),
     answers: ((answers ?? []) as BriefAnswerRow[]).map(mapAnswer),
     error: null,
   }

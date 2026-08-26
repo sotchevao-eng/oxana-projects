@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '../Button'
+import { ConfirmDialog } from '../ConfirmDialog'
 import { useToast } from '../ToastProvider'
+import { AdminBriefAiModal } from './AdminBriefAiModal'
 import type { ClientProject } from '../../types/clientProject'
 import type { BriefField, BriefFieldInput } from '../../types/brief'
 import {
@@ -50,6 +52,14 @@ function fieldToInput(field: BriefField): BriefFieldInput {
   }
 }
 
+function sanitizeFieldKeyInput(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '')
+}
+
 async function copyText(value: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(value)
@@ -76,6 +86,8 @@ export function AdminBriefConstructor({
   const [draft, setDraft] = useState<BriefFieldInput>(emptyInput(0))
   const [busy, setBusy] = useState(false)
   const [autoKey, setAutoKey] = useState(true)
+  const [deleteTarget, setDeleteTarget] = useState<BriefField | null>(null)
+  const [aiOpen, setAiOpen] = useState(false)
 
   const briefUrl = getBriefPublicUrl(project.briefToken)
 
@@ -124,16 +136,18 @@ export function AdminBriefConstructor({
       showToast('Укажите заголовок вопроса', 'error')
       return
     }
-    if (!isValidFieldKey(draft.fieldKey)) {
+    const key = sanitizeFieldKeyInput(draft.fieldKey)
+    if (!isValidFieldKey(key)) {
       showToast('Ключ: только латиница, цифры и underscore', 'error')
       return
     }
 
+    const payload = { ...draft, fieldKey: key }
     setBusy(true)
     const result =
       editingId === 'new'
-        ? await createBriefField(project.id, draft)
-        : await updateBriefField(editingId as string, draft)
+        ? await createBriefField(project.id, payload)
+        : await updateBriefField(editingId as string, payload)
     setBusy(false)
 
     if (!result.ok) {
@@ -147,21 +161,22 @@ export function AdminBriefConstructor({
     onProjectStatusMaybeChanged?.()
   }
 
-  const handleDelete = async (fieldId: string) => {
-    if (busy) {
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || busy) {
       return
     }
     setBusy(true)
-    const result = await deleteBriefField(fieldId)
+    const result = await deleteBriefField(deleteTarget.id)
     setBusy(false)
     if (!result.ok) {
       showToast(result.error ?? 'Не удалось удалить', 'error')
       return
     }
     showToast('Вопрос удалён', 'success')
-    if (editingId === fieldId) {
+    if (editingId === deleteTarget.id) {
       setEditingId(null)
     }
+    setDeleteTarget(null)
     await load()
   }
 
@@ -233,29 +248,47 @@ export function AdminBriefConstructor({
         </div>
         <p className="mt-3 text-sm text-muted">
           Вопросов: {fields.length}
-          {fields.length > 0 ? ' · статус брифа зависит от ответов клиента' : ''}
+          {fields.length > 0
+            ? ' · после отправки клиентом статус станет «Бриф заполнен»'
+            : ''}
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" onClick={openNew} disabled={busy}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button
+          type="button"
+          onClick={() => setAiOpen(true)}
+          disabled={busy}
+          className="w-full sm:w-auto"
+        >
+          <Sparkles className="mr-1.5 h-4 w-4" />
+          Сгенерировать бриф с ИИ
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={openNew}
+          disabled={busy}
+          className="w-full sm:w-auto"
+        >
           <Plus className="mr-1.5 h-4 w-4" />
           Добавить вопрос
         </Button>
-        {project.projectType === 'Сайт' ? (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => void handleTemplate()}
-            disabled={busy}
-          >
-            Добавить базовый бриф
-          </Button>
-        ) : null}
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => void handleTemplate()}
+          disabled={busy}
+          className="w-full sm:w-auto"
+        >
+          Добавить базовый бриф
+        </Button>
       </div>
 
       {error ? (
-        <p className="text-sm text-red-500">{error}</p>
+        <p className="rounded-xl border border-red-300/50 bg-soft px-4 py-3 text-sm text-ink">
+          {error}
+        </p>
       ) : null}
 
       {loading ? (
@@ -282,21 +315,24 @@ export function AdminBriefConstructor({
                 onLabelChange={handleLabelChange}
                 onKeyManual={(value) => {
                   setAutoKey(false)
-                  setDraft((prev) => ({ ...prev, fieldKey: value }))
+                  setDraft((prev) => ({
+                    ...prev,
+                    fieldKey: sanitizeFieldKeyInput(value),
+                  }))
                 }}
                 onSave={() => void handleSave()}
                 onCancel={() => setEditingId(null)}
               />
             ) : (
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
+                <div className="min-w-0">
                   <p className="font-medium text-ink">
                     {index + 1}. {field.label}
                     {field.required ? (
                       <span className="ml-1 text-accent">*</span>
                     ) : null}
                   </p>
-                  <p className="mt-1 text-xs text-muted">
+                  <p className="mt-1 break-all text-xs text-muted">
                     {field.fieldKey} ·{' '}
                     {BRIEF_FIELD_TYPE_LABELS[
                       field.fieldType as keyof typeof BRIEF_FIELD_TYPE_LABELS
@@ -306,19 +342,19 @@ export function AdminBriefConstructor({
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
-                    className="rounded-lg border border-border p-2 text-muted hover:text-ink"
+                    className="rounded-lg border border-border p-2 text-muted hover:text-ink disabled:opacity-40"
                     onClick={() => void moveField(index, -1)}
                     aria-label="Выше"
-                    disabled={index === 0}
+                    disabled={index === 0 || busy}
                   >
                     <ArrowUp className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-border p-2 text-muted hover:text-ink"
+                    className="rounded-lg border border-border p-2 text-muted hover:text-ink disabled:opacity-40"
                     onClick={() => void moveField(index, 1)}
                     aria-label="Ниже"
-                    disabled={index === fields.length - 1}
+                    disabled={index === fields.length - 1 || busy}
                   >
                     <ArrowDown className="h-4 w-4" />
                   </button>
@@ -326,14 +362,16 @@ export function AdminBriefConstructor({
                     type="button"
                     variant="secondary"
                     onClick={() => openEdit(field)}
+                    disabled={busy}
                   >
                     Изменить
                   </Button>
                   <button
                     type="button"
                     className="rounded-lg border border-border p-2 text-muted hover:text-red-500"
-                    onClick={() => void handleDelete(field.id)}
+                    onClick={() => setDeleteTarget(field)}
                     aria-label="Удалить"
+                    disabled={busy}
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -354,7 +392,10 @@ export function AdminBriefConstructor({
               onLabelChange={handleLabelChange}
               onKeyManual={(value) => {
                 setAutoKey(false)
-                setDraft((prev) => ({ ...prev, fieldKey: value }))
+                setDraft((prev) => ({
+                  ...prev,
+                  fieldKey: sanitizeFieldKeyInput(value),
+                }))
               }}
               onSave={() => void handleSave()}
               onCancel={() => setEditingId(null)}
@@ -362,6 +403,30 @@ export function AdminBriefConstructor({
           </div>
         ) : null}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Удалить вопрос?"
+        description={
+          deleteTarget
+            ? `Вопрос «${deleteTarget.label}» будет удалён из брифа.`
+            : ''
+        }
+        confirming={busy}
+        onConfirm={() => void handleConfirmDelete()}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
+      <AdminBriefAiModal
+        open={aiOpen}
+        project={project}
+        existingKeys={fields.map((field) => field.fieldKey)}
+        onClose={() => setAiOpen(false)}
+        onApplied={() => {
+          void load()
+          onProjectStatusMaybeChanged?.()
+        }}
+      />
     </div>
   )
 }
@@ -406,7 +471,11 @@ function BriefFieldEditor({
             className={fieldClass}
             value={draft.fieldKey}
             onChange={(event) => onKeyManual(event.target.value)}
+            placeholder="company_name"
           />
+          <p className="text-[11px] text-muted">
+            Только латиница, цифры и _. Без пробелов.
+          </p>
         </div>
         <div className="space-y-1.5">
           <label className="block text-xs font-medium text-muted">Тип поля</label>

@@ -81,6 +81,10 @@ export function AdminBriefAnswers({ project }: AdminBriefAnswersProps) {
   )
 
   const handleCopy = async () => {
+    if (!submission) {
+      showToast('Пока нет ответов для копирования', 'error')
+      return
+    }
     const text = formatBriefAnswersForCopy(fields, answers)
     try {
       await navigator.clipboard.writeText(text)
@@ -95,7 +99,11 @@ export function AdminBriefAnswers({ project }: AdminBriefAnswersProps) {
   }
 
   if (error) {
-    return <p className="text-sm text-red-500">{error}</p>
+    return (
+      <p className="rounded-xl border border-red-300/50 bg-soft px-4 py-3 text-sm text-ink">
+        {error}
+      </p>
+    )
   }
 
   return (
@@ -116,10 +124,19 @@ export function AdminBriefAnswers({ project }: AdminBriefAnswersProps) {
             <p className="mt-1 text-xs text-muted">
               Отправлено: {formatAdminDate(submission.submittedAt)}
             </p>
+          ) : submission?.updatedAt && submission.status === 'draft' ? (
+            <p className="mt-1 text-xs text-muted">
+              Черновик обновлён: {formatAdminDate(submission.updatedAt)}
+            </p>
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" onClick={() => void handleCopy()}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void handleCopy()}
+            disabled={!submission || fields.length === 0}
+          >
             Скопировать все ответы
           </Button>
           <Button href={getBriefPublicUrl(project.briefToken)} variant="ghost" external>
