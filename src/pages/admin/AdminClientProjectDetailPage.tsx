@@ -258,7 +258,7 @@ export function AdminClientProjectDetailPage() {
                 </Button>
               </div>
               <p className="text-xs text-muted">
-                Редактор КП — вкладка «КП». Публичная страница — этап 3.2.
+                Редактор — вкладка «КП». Публичная страница: /proposal/:token
               </p>
             </div>
           </div>

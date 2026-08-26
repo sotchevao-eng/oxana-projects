@@ -3,6 +3,7 @@ import type {
   ProposalFormValues,
   ProposalSection,
   ProposalStatus,
+  PublicProposalPayload,
 } from '../types/proposal'
 import { getSupabaseClient, isSupabaseConfigured } from './supabaseClient'
 
@@ -328,4 +329,57 @@ export function proposalToForm(proposal: Proposal): ProposalFormValues {
     status: proposal.status,
     sections: proposal.sections.map((section) => ({ ...section })),
   }
+}
+
+function friendlyPublicProposalError(code?: string | null): string {
+  switch (code) {
+    case 'proposal_not_published':
+      return 'Предложение пока не опубликовано.'
+    case 'proposal_not_found':
+      return 'Ссылка недействительна.'
+    default:
+      return 'Не удалось загрузить предложение.'
+  }
+}
+
+export async function fetchPublicProposal(
+  token: string,
+): Promise<{ data: PublicProposalPayload | null; error: string | null }> {
+  const { client, error } = requireClient()
+  if (!client) {
+    return { data: null, error: error ?? 'Сервис временно недоступен.' }
+  }
+
+  const { data, error: rpcError } = await client.rpc('get_public_proposal', {
+    p_token: token,
+  })
+
+  if (rpcError) {
+    const msg = rpcError.message?.toLowerCase() ?? ''
+    if (
+      msg.includes('get_public_proposal') ||
+      msg.includes('could not find the function') ||
+      msg.includes('schema cache')
+    ) {
+      return {
+        data: null,
+        error:
+          'Публичный RPC КП ещё не создан. Выполните supabase/proposal-public-rpc.sql в Supabase SQL Editor.',
+      }
+    }
+    return {
+      data: null,
+      error: 'Не удалось загрузить предложение. Попробуйте ещё раз.',
+    }
+  }
+
+  const payload = data as PublicProposalPayload
+  if (!payload?.ok) {
+    return {
+      data: payload ?? null,
+      error: friendlyPublicProposalError(payload?.error),
+    }
+  }
+
+  return { data: payload, error: null }
 }

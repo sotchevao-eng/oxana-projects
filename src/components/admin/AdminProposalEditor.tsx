@@ -248,7 +248,7 @@ export function AdminProposalEditor({
           </p>
           <p className="break-all text-xs text-muted">{proposalUrl}</p>
           <p className="text-xs text-muted">
-            Публичная страница — этап 3.2. Ссылку можно копировать уже сейчас.
+            После публикации страница доступна по этой ссылке.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

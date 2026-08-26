@@ -9,6 +9,7 @@ import { AdminLayout } from './layouts/AdminLayout'
 import { MainLayout } from './layouts/MainLayout'
 import { AboutPage } from './pages/AboutPage'
 import { BriefPage } from './pages/BriefPage'
+import { ProposalPage } from './pages/ProposalPage'
 import { AdminContactDetailPage } from './pages/admin/AdminContactDetailPage'
 import { AdminContactsPage } from './pages/admin/AdminContactsPage'
 import { AdminClientDetailPage } from './pages/admin/AdminClientDetailPage'
@@ -48,6 +49,7 @@ export default function App() {
                   <Route path="privacy" element={<PrivacyPage />} />
                   <Route path="security" element={<SecurityPage />} />
                   <Route path="brief/:token" element={<BriefPage />} />
+                  <Route path="proposal/:token" element={<ProposalPage />} />
                   <Route path="*" element={<NotFoundPage />} />
                 </Route>
 

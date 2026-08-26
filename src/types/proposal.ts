@@ -123,3 +123,33 @@ export function defaultProposalSections(): ProposalSection[] {
     visible: true,
   }))
 }
+
+/** Public RPC payload (snake_case — matches get_public_proposal). */
+export interface PublicProposalSection {
+  section_type: string
+  title: string | null
+  content: string | null
+  sort_order: number
+}
+
+export interface PublicProposalPayload {
+  ok: boolean
+  error?: string
+  project?: {
+    title: string
+    project_type: string
+  }
+  client?: {
+    name: string | null
+    company: string | null
+  }
+  proposal?: {
+    title: string | null
+    subtitle: string | null
+    intro: string | null
+    price: string | null
+    deadline: string | null
+    status: string
+  }
+  sections?: PublicProposalSection[]
+}
