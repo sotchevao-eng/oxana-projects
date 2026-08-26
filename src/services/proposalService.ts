@@ -1,5 +1,6 @@
 import type {
   Proposal,
+  ProposalFeedbackItem,
   ProposalFormValues,
   ProposalSection,
   ProposalStatus,
@@ -338,8 +339,47 @@ function friendlyPublicProposalError(code?: string | null): string {
       return 'Предложение пока не опубликовано.'
     case 'proposal_not_found':
       return 'Ссылка недействительна.'
+    case 'proposal_already_accepted':
+      return 'Предложение уже принято.'
+    case 'validation_failed':
+      return 'Проверьте имя и комментарий.'
     default:
       return 'Не удалось загрузить предложение.'
+  }
+}
+
+function friendlyPublicActionError(code?: string | null): string {
+  switch (code) {
+    case 'proposal_not_published':
+      return 'Предложение пока не опубликовано.'
+    case 'proposal_not_found':
+      return 'Ссылка недействительна.'
+    case 'proposal_already_accepted':
+      return 'Предложение уже принято.'
+    case 'validation_failed':
+      return 'Проверьте имя и комментарий.'
+    default:
+      return 'Не удалось отправить ответ. Попробуйте ещё раз.'
+  }
+}
+
+interface ProposalFeedbackRow {
+  id: string
+  proposal_id: string
+  action: string
+  name: string | null
+  comment: string | null
+  created_at: string
+}
+
+function mapFeedback(row: ProposalFeedbackRow): ProposalFeedbackItem {
+  return {
+    id: row.id,
+    proposalId: row.proposal_id,
+    action: row.action,
+    name: row.name ?? '',
+    comment: row.comment ?? '',
+    createdAt: row.created_at,
   }
 }
 
@@ -383,6 +423,117 @@ export async function fetchPublicProposal(
   }
 
   return { data: payload, error: null }
+}
+
+export async function acceptPublicProposal(
+  token: string,
+  name: string,
+  comment: string,
+): Promise<{ ok: boolean; status?: string; error?: string }> {
+  const { client, error } = requireClient()
+  if (!client) {
+    return { ok: false, error: error ?? 'Сервис временно недоступен.' }
+  }
+
+  const { data, error: rpcError } = await client.rpc('accept_public_proposal', {
+    p_token: token,
+    p_name: name.trim(),
+    p_comment: comment.trim() || null,
+  })
+
+  if (rpcError) {
+    const msg = rpcError.message?.toLowerCase() ?? ''
+    if (
+      msg.includes('accept_public_proposal') ||
+      msg.includes('could not find the function')
+    ) {
+      return {
+        ok: false,
+        error:
+          'RPC принятия КП ещё не создан. Выполните supabase/proposal-feedback-rpc.sql.',
+      }
+    }
+    return { ok: false, error: 'Не удалось принять предложение.' }
+  }
+
+  const payload = data as { ok?: boolean; status?: string; error?: string }
+  if (!payload?.ok) {
+    return {
+      ok: false,
+      error: friendlyPublicActionError(payload?.error),
+    }
+  }
+
+  return { ok: true, status: payload.status ?? 'accepted' }
+}
+
+export async function requestPublicProposalChanges(
+  token: string,
+  name: string,
+  comment: string,
+): Promise<{ ok: boolean; status?: string; error?: string }> {
+  const { client, error } = requireClient()
+  if (!client) {
+    return { ok: false, error: error ?? 'Сервис временно недоступен.' }
+  }
+
+  const { data, error: rpcError } = await client.rpc(
+    'request_proposal_changes',
+    {
+      p_token: token,
+      p_name: name.trim(),
+      p_comment: comment.trim(),
+    },
+  )
+
+  if (rpcError) {
+    const msg = rpcError.message?.toLowerCase() ?? ''
+    if (
+      msg.includes('request_proposal_changes') ||
+      msg.includes('could not find the function')
+    ) {
+      return {
+        ok: false,
+        error:
+          'RPC запроса изменений ещё не создан. Выполните supabase/proposal-feedback-rpc.sql.',
+      }
+    }
+    return { ok: false, error: 'Не удалось отправить запрос.' }
+  }
+
+  const payload = data as { ok?: boolean; status?: string; error?: string }
+  if (!payload?.ok) {
+    return {
+      ok: false,
+      error: friendlyPublicActionError(payload?.error),
+    }
+  }
+
+  return { ok: true, status: payload.status ?? 'changes_requested' }
+}
+
+export async function fetchProposalFeedback(
+  proposalId: string,
+): Promise<{ data: ProposalFeedbackItem[]; error: string | null }> {
+  const { client, error } = requireClient()
+  if (!client) {
+    return { data: [], error }
+  }
+
+  const { data, error: queryError } = await client
+    .from('proposal_feedback')
+    .select('*')
+    .eq('proposal_id', proposalId)
+    .order('created_at', { ascending: false })
+
+  if (queryError) {
+    return { data: [], error: friendlyError(queryError.message) }
+  }
+
+  return {
+    data: ((data ?? []) as ProposalFeedbackRow[]).map(mapFeedback),
+    error: null,
+  }
 }
 
 export async function applyProposalAiDraft(

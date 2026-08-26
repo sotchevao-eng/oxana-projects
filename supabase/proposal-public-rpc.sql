@@ -49,7 +49,7 @@ begin
 
   if v_proposal.id is null
      or v_proposal.published is distinct from true
-     or v_proposal.status is distinct from 'published' then
+     or v_proposal.status not in ('published', 'accepted', 'changes_requested') then
     return jsonb_build_object('ok', false, 'error', 'proposal_not_published');
   end if;
 

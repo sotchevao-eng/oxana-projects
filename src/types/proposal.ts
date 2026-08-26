@@ -153,3 +153,17 @@ export interface PublicProposalPayload {
   }
   sections?: PublicProposalSection[]
 }
+
+export interface ProposalFeedbackItem {
+  id: string
+  proposalId: string
+  action: 'accepted' | 'changes_requested' | string
+  name: string
+  comment: string
+  createdAt: string
+}
+
+export const PROPOSAL_FEEDBACK_ACTION_LABELS: Record<string, string> = {
+  accepted: 'Принято',
+  changes_requested: 'Запрошены изменения',
+}

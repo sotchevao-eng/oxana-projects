@@ -1,15 +1,25 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useParams } from 'react-router-dom'
+import { X } from 'lucide-react'
 import { Button } from '../components/Button'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { useScrollLock } from '../hooks/useScrollLock'
 import { useSiteSettings } from '../hooks/useSiteSettings'
-import { fetchPublicProposal } from '../services/proposalService'
+import {
+  acceptPublicProposal,
+  fetchPublicProposal,
+  requestPublicProposalChanges,
+} from '../services/proposalService'
 import {
   PROPOSAL_SECTION_TYPE_LABELS,
   type ProposalSectionType,
   type PublicProposalPayload,
   type PublicProposalSection,
 } from '../types/proposal'
+
+const fieldClass =
+  'w-full rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-ink outline-none transition-colors focus:border-accent/50 disabled:opacity-60'
 
 function sectionHeading(section: PublicProposalSection): string {
   if (section.title?.trim()) {
@@ -35,6 +45,11 @@ export function ProposalPage() {
   const [payload, setPayload] = useState<PublicProposalPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [acceptOpen, setAcceptOpen] = useState(false)
+  const [changesOpen, setChangesOpen] = useState(false)
+  const [actionNotice, setActionNotice] = useState<
+    'accepted' | 'changes_requested' | null
+  >(null)
 
   useEffect(() => {
     let active = true
@@ -60,12 +75,34 @@ export function ProposalPage() {
       setPayload(result.data)
       setError(null)
       setLoading(false)
+      const status = result.data.proposal?.status
+      if (status === 'accepted' || status === 'changes_requested') {
+        setActionNotice(status)
+      }
     }
     void load()
     return () => {
       active = false
     }
   }, [token])
+
+  const applyLocalStatus = (status: 'accepted' | 'changes_requested') => {
+    setActionNotice(status)
+    setPayload((prev) => {
+      if (!prev?.ok || !prev.proposal) {
+        return prev
+      }
+      return {
+        ...prev,
+        proposal: {
+          ...prev.proposal,
+          status,
+        },
+      }
+    })
+    setAcceptOpen(false)
+    setChangesOpen(false)
+  }
 
   if (loading) {
     return (
@@ -106,6 +143,17 @@ export function ProposalPage() {
   const clientLabel = [client?.name, client?.company]
     .filter((item) => item && String(item).trim())
     .join(' · ')
+  const status = proposal.status
+  const isTerminal =
+    status === 'accepted' ||
+    status === 'changes_requested' ||
+    actionNotice === 'accepted' ||
+    actionNotice === 'changes_requested'
+  const showAccepted =
+    status === 'accepted' || actionNotice === 'accepted'
+  const showChanges =
+    !showAccepted &&
+    (status === 'changes_requested' || actionNotice === 'changes_requested')
 
   return (
     <ProposalShell siteName={settings.siteName}>
@@ -187,8 +235,8 @@ export function ProposalPage() {
                   </h2>
                   {lines.length > 0 ? (
                     <div className="mt-3 space-y-2 text-sm leading-relaxed text-muted md:text-[0.95rem]">
-                      {lines.map((line) => (
-                        <p key={line.slice(0, 40) + line.length}>{line}</p>
+                      {lines.map((line, lineIndex) => (
+                        <p key={`${index}-${lineIndex}`}>{line}</p>
                       ))}
                     </div>
                   ) : (
@@ -201,25 +249,340 @@ export function ProposalPage() {
         )}
 
         <div className="rounded-[2rem] border border-border bg-surface/90 p-6 text-center shadow-card sm:p-8">
-          <p className="font-display text-xl font-medium tracking-tight md:text-2xl">
-            Готовы обсудить детали?
-          </p>
-          <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted">
-            Напишите, если предложение подходит или нужны уточнения — ответим и
-            согласуем следующий шаг.
-          </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-2">
-            <Button to="/contacts">Связаться</Button>
-            <Button to="/" variant="secondary">
-              На главную
-            </Button>
-          </div>
-          <p className="mt-4 text-xs text-muted">
-            Принятие КП и запрос изменений — следующий этап.
-          </p>
+          {showAccepted ? (
+            <>
+              <p className="font-display text-xl font-medium tracking-tight md:text-2xl">
+                Предложение принято. Спасибо!
+              </p>
+              <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted">
+                Мы свяжемся с вами и согласуем следующий шаг.
+              </p>
+              <div className="mt-6">
+                <Button to="/" variant="secondary">
+                  На главную
+                </Button>
+              </div>
+            </>
+          ) : showChanges ? (
+            <>
+              <p className="font-display text-xl font-medium tracking-tight md:text-2xl">
+                Запрос на изменения отправлен.
+              </p>
+              <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted">
+                Изучим комментарий и вернёмся с обновлённым предложением.
+              </p>
+              <div className="mt-6">
+                <Button to="/" variant="secondary">
+                  На главную
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="font-display text-xl font-medium tracking-tight md:text-2xl">
+                Готовы двигаться дальше?
+              </p>
+              <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted">
+                Примите предложение или опишите, что нужно уточнить.
+              </p>
+              <div className="mt-6 flex flex-wrap justify-center gap-2">
+                <Button type="button" onClick={() => setAcceptOpen(true)}>
+                  Принять предложение
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setChangesOpen(true)}
+                >
+                  Нужны изменения
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </div>
+
+      {!isTerminal || acceptOpen || changesOpen ? (
+        <>
+          <AcceptProposalModal
+            open={acceptOpen}
+            token={token}
+            onClose={() => setAcceptOpen(false)}
+            onSuccess={() => applyLocalStatus('accepted')}
+          />
+          <ChangesProposalModal
+            open={changesOpen}
+            token={token}
+            onClose={() => setChangesOpen(false)}
+            onSuccess={() => applyLocalStatus('changes_requested')}
+          />
+        </>
+      ) : null}
     </ProposalShell>
+  )
+}
+
+function AcceptProposalModal({
+  open,
+  token,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean
+  token: string
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [name, setName] = useState('')
+  const [comment, setComment] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useScrollLock(open)
+
+  useEffect(() => {
+    if (!open) return
+    setName('')
+    setComment('')
+    setConfirmed(false)
+    setError(null)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !submitting) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, submitting, onClose])
+
+  if (!open) return null
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!name.trim()) {
+      setError('Укажите имя.')
+      return
+    }
+    if (!confirmed) {
+      setError('Подтвердите принятие предложения.')
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    const result = await acceptPublicProposal(token, name, comment)
+    setSubmitting(false)
+    if (!result.ok) {
+      setError(result.error ?? 'Не удалось принять предложение.')
+      return
+    }
+    onSuccess()
+  }
+
+  return createPortal(
+    <ModalShell title="Принять предложение" onClose={onClose} busy={submitting}>
+      <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
+        <div className="space-y-1.5">
+          <label className="block text-xs text-muted">Имя</label>
+          <input
+            className={fieldClass}
+            value={name}
+            maxLength={120}
+            required
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="block text-xs text-muted">
+            Комментарий <span className="text-muted/70">(необязательно)</span>
+          </label>
+          <textarea
+            className={fieldClass}
+            rows={3}
+            maxLength={2000}
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+          />
+        </div>
+        <label className="flex items-start gap-3 text-sm text-ink">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 rounded border-border"
+            checked={confirmed}
+            onChange={(event) => setConfirmed(event.target.checked)}
+          />
+          <span>Я подтверждаю принятие коммерческого предложения</span>
+        </label>
+        {error ? (
+          <p role="alert" className="text-sm text-red-500">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={submitting}
+            onClick={onClose}
+          >
+            Отмена
+          </Button>
+          <Button type="submit" disabled={submitting || !confirmed}>
+            {submitting ? 'Отправка...' : 'Принять'}
+          </Button>
+        </div>
+      </form>
+    </ModalShell>,
+    document.body,
+  )
+}
+
+function ChangesProposalModal({
+  open,
+  token,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean
+  token: string
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [name, setName] = useState('')
+  const [comment, setComment] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useScrollLock(open)
+
+  useEffect(() => {
+    if (!open) return
+    setName('')
+    setComment('')
+    setError(null)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !submitting) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, submitting, onClose])
+
+  if (!open) return null
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!name.trim()) {
+      setError('Укажите имя.')
+      return
+    }
+    if (!comment.trim()) {
+      setError('Опишите, какие изменения нужны.')
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    const result = await requestPublicProposalChanges(token, name, comment)
+    setSubmitting(false)
+    if (!result.ok) {
+      setError(result.error ?? 'Не удалось отправить запрос.')
+      return
+    }
+    onSuccess()
+  }
+
+  return createPortal(
+    <ModalShell title="Нужны изменения" onClose={onClose} busy={submitting}>
+      <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
+        <div className="space-y-1.5">
+          <label className="block text-xs text-muted">Имя</label>
+          <input
+            className={fieldClass}
+            value={name}
+            maxLength={120}
+            required
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="block text-xs text-muted">Комментарий</label>
+          <textarea
+            className={fieldClass}
+            rows={4}
+            maxLength={2000}
+            required
+            placeholder="Что нужно изменить или уточнить?"
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+          />
+        </div>
+        {error ? (
+          <p role="alert" className="text-sm text-red-500">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={submitting}
+            onClick={onClose}
+          >
+            Отмена
+          </Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? 'Отправка...' : 'Отправить запрос'}
+          </Button>
+        </div>
+      </form>
+    </ModalShell>,
+    document.body,
+  )
+}
+
+function ModalShell({
+  title,
+  onClose,
+  busy,
+  children,
+}: {
+  title: string
+  onClose: () => void
+  busy?: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end justify-center p-0 sm:items-center sm:p-6">
+      <button
+        type="button"
+        className="absolute inset-0 bg-ink/40 backdrop-blur-[2px]"
+        aria-label="Закрыть"
+        disabled={busy}
+        onClick={() => {
+          if (!busy) onClose()
+        }}
+      />
+      <div className="relative z-10 w-full max-w-md overflow-hidden rounded-t-3xl border border-border bg-surface shadow-card sm:rounded-3xl">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+          <button
+            type="button"
+            className="rounded-lg border border-border p-2 text-muted hover:text-ink"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Закрыть"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="px-5 py-5">{children}</div>
+      </div>
+    </div>
   )
 }
 

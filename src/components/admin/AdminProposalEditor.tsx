@@ -5,6 +5,7 @@ import { useToast } from '../ToastProvider'
 import { AdminProposalAiModal } from './AdminProposalAiModal'
 import type { ClientProject } from '../../types/clientProject'
 import {
+  PROPOSAL_FEEDBACK_ACTION_LABELS,
   PROPOSAL_SECTION_TYPE_LABELS,
   PROPOSAL_SECTION_TYPES,
   PROPOSAL_STATUS_LABELS,
@@ -12,13 +13,16 @@ import {
   defaultProposalSections,
   emptyProposalForm,
   type Proposal,
+  type ProposalFeedbackItem,
   type ProposalFormValues,
   type ProposalSection,
   type ProposalSectionType,
 } from '../../types/proposal'
+import { formatAdminDate, formatAdminDateTime } from '../../services/adminService'
 import {
   createProposal,
   fetchProposalByProjectId,
+  fetchProposalFeedback,
   proposalToForm,
   setProposalPublished,
   updateProposal,
@@ -54,6 +58,7 @@ export function AdminProposalEditor({
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [aiOpen, setAiOpen] = useState(false)
+  const [feedback, setFeedback] = useState<ProposalFeedbackItem[]>([])
 
   const proposalUrl = getProposalPublicUrl(project.proposalToken)
 
@@ -64,8 +69,11 @@ export function AdminProposalEditor({
     setError(result.error)
     if (result.data) {
       setForm(proposalToForm(result.data))
+      const feedbackResult = await fetchProposalFeedback(result.data.id)
+      setFeedback(feedbackResult.data)
     } else {
       setForm(emptyProposalForm())
+      setFeedback([])
     }
     setLoading(false)
   }
@@ -248,6 +256,16 @@ export function AdminProposalEditor({
               <span className="ml-2 text-xs text-accent">· опубликовано</span>
             ) : null}
           </p>
+          {proposal?.acceptedAt ? (
+            <p className="text-xs text-muted">
+              Принято: {formatAdminDate(proposal.acceptedAt)}
+            </p>
+          ) : null}
+          {proposal?.changesRequestedAt ? (
+            <p className="text-xs text-muted">
+              Запрос изменений: {formatAdminDate(proposal.changesRequestedAt)}
+            </p>
+          ) : null}
           <p className="break-all text-xs text-muted">{proposalUrl}</p>
           <p className="text-xs text-muted">
             После публикации страница доступна по этой ссылке.
@@ -262,6 +280,46 @@ export function AdminProposalEditor({
           </Button>
         </div>
       </div>
+
+      {proposal ? (
+        <div className="rounded-xl border border-border px-4 py-4">
+          <h3 className="text-sm font-medium text-ink">Ответы клиента</h3>
+          {feedback.length === 0 ? (
+            <p className="mt-2 text-xs text-muted">
+              Пока нет принятия или запросов изменений.
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-3">
+              {feedback.map((item) => (
+                <li
+                  key={item.id}
+                  className="rounded-lg border border-border/70 bg-soft/40 px-3 py-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="font-medium text-ink">
+                      {PROPOSAL_FEEDBACK_ACTION_LABELS[item.action] ??
+                        item.action}
+                    </p>
+                    <p className="text-xs text-muted">
+                      {formatAdminDateTime(item.createdAt)}
+                    </p>
+                  </div>
+                  <p className="mt-1 text-xs text-muted">
+                    {item.name || 'Без имени'}
+                  </p>
+                  {item.comment ? (
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-ink">
+                      {item.comment}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted">Без комментария</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
 
       {!proposal ? (
         <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center">
