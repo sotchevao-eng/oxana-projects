@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AdminBriefAnswers } from '../../components/admin/AdminBriefAnswers'
 import { AdminBriefConstructor } from '../../components/admin/AdminBriefConstructor'
+import { AdminProposalEditor } from '../../components/admin/AdminProposalEditor'
 import { Button } from '../../components/Button'
 import { DataStatus } from '../../components/DataStatus'
 import { useToast } from '../../components/ToastProvider'
@@ -29,7 +30,7 @@ const tabs: Array<{ id: TabId; label: string; ready: boolean }> = [
   { id: 'main', label: 'Основное', ready: true },
   { id: 'brief', label: 'Бриф', ready: true },
   { id: 'answers', label: 'Ответы', ready: true },
-  { id: 'proposal', label: 'КП', ready: false },
+  { id: 'proposal', label: 'КП', ready: true },
   { id: 'history', label: 'История', ready: false },
 ]
 
@@ -256,7 +257,9 @@ export function AdminClientProjectDetailPage() {
                   Открыть КП
                 </Button>
               </div>
-              <p className="text-xs text-muted">Публичный лендинг КП — этап 3.</p>
+              <p className="text-xs text-muted">
+                Редактор КП — вкладка «КП». Публичная страница — этап 3.2.
+              </p>
             </div>
           </div>
 
@@ -440,9 +443,10 @@ export function AdminClientProjectDetailPage() {
       {tab === 'answers' ? <AdminBriefAnswers project={project} /> : null}
 
       {tab === 'proposal' ? (
-        <div className="rounded-xl border border-dashed border-border px-4 py-12 text-center text-sm text-muted">
-          Конструктор коммерческого предложения появится на этапе 3.
-        </div>
+        <AdminProposalEditor
+          project={project}
+          onProjectStatusMaybeChanged={() => void reloadProject()}
+        />
       ) : null}
 
       {tab === 'history' ? (
