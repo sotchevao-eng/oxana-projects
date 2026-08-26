@@ -84,6 +84,10 @@ export function validateBriefAiDraft(
       placeholder: String(item.placeholder ?? '').trim(),
       helpText: String(item.helpText ?? item.help_text ?? '').trim(),
       required: Boolean(item.required),
+      isPersonalData:
+        fieldType === 'email' ||
+        fieldType === 'phone' ||
+        Boolean(item.isPersonalData ?? item.is_personal_data),
       options:
         fieldType === 'single_select' || fieldType === 'multi_select'
           ? options
@@ -126,6 +130,8 @@ export function friendlyAiError(code?: string): string {
       return 'Слишком много вопросов (максимум 20).'
     case 'no_session':
       return 'Сессия не найдена. Войдите в админку снова.'
+    case 'pii_detected_in_ai_payload':
+      return 'Генерация остановлена: обнаружены данные, которые нельзя передавать в ИИ.'
     default:
       return code?.trim()
         ? code

@@ -7,6 +7,7 @@ export interface BriefAiFieldDraft {
   placeholder: string
   helpText: string
   required: boolean
+  isPersonalData?: boolean
   options: string[]
 }
 

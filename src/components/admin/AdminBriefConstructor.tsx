@@ -19,6 +19,7 @@ import {
   updateBriefField,
 } from '../../services/briefService'
 import { ensureUniqueFieldKey, isValidFieldKey, slugifyFieldKey } from '../../utils/fieldKey'
+import { shouldMarkPersonalData } from '../../utils/piiSanitizer'
 import {
   getBriefPublicUrl,
 } from '../../utils/publicTokens'
@@ -34,6 +35,7 @@ function emptyInput(sortOrder: number): BriefFieldInput {
     placeholder: '',
     helpText: '',
     required: false,
+    isPersonalData: false,
     options: [],
     sortOrder,
   }
@@ -47,6 +49,7 @@ function fieldToInput(field: BriefField): BriefFieldInput {
     placeholder: field.placeholder ?? '',
     helpText: field.helpText ?? '',
     required: field.required,
+    isPersonalData: field.isPersonalData,
     options: field.options ?? [],
     sortOrder: field.sortOrder,
   }
@@ -331,6 +334,11 @@ export function AdminBriefConstructor({
                     {field.required ? (
                       <span className="ml-1 text-accent">*</span>
                     ) : null}
+                    {field.isPersonalData ? (
+                      <span className="ml-2 inline-flex items-center rounded-full border border-border bg-soft px-2 py-0.5 text-[11px] font-medium text-muted">
+                        🔒 Персональные данные
+                      </span>
+                    ) : null}
                   </p>
                   <p className="mt-1 break-all text-xs text-muted">
                     {field.fieldKey} ·{' '}
@@ -482,9 +490,21 @@ function BriefFieldEditor({
           <select
             className={fieldClass}
             value={draft.fieldType}
-            onChange={(event) =>
-              onChange({ ...draft, fieldType: event.target.value })
-            }
+            onChange={(event) => {
+              const fieldType = event.target.value
+              onChange({
+                ...draft,
+                fieldType,
+                isPersonalData: shouldMarkPersonalData(
+                  draft.fieldKey,
+                  draft.label,
+                  fieldType,
+                  draft.isPersonalData ||
+                    fieldType === 'email' ||
+                    fieldType === 'phone',
+                ),
+              })
+            }}
           >
             {BRIEF_FIELD_TYPES.map((type) => (
               <option key={type} value={type}>
@@ -528,6 +548,25 @@ function BriefFieldEditor({
           <label htmlFor="brief-required" className="text-sm text-ink">
             Обязательное поле
           </label>
+        </div>
+        <div className="space-y-1 md:col-span-2">
+          <div className="flex items-start gap-2">
+            <input
+              id="brief-personal"
+              type="checkbox"
+              checked={draft.isPersonalData}
+              onChange={(event) =>
+                onChange({ ...draft, isPersonalData: event.target.checked })
+              }
+              className="mt-0.5 h-4 w-4 rounded border-border"
+            />
+            <label htmlFor="brief-personal" className="text-sm text-ink">
+              Персональные данные
+              <span className="mt-0.5 block text-xs text-muted">
+                Ответ на этот вопрос не будет передаваться в ИИ.
+              </span>
+            </label>
+          </div>
         </div>
         {needsOptions ? (
           <div className="space-y-1.5 md:col-span-2">

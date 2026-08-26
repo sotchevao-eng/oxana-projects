@@ -31,6 +31,7 @@ function mapServerDraft(raw: unknown) {
           placeholder: field.placeholder,
           helpText: field.helpText ?? field.help_text,
           required: field.required,
+          isPersonalData: field.isPersonalData ?? field.is_personal_data,
           options: field.options,
         }
       })

@@ -215,6 +215,10 @@ export async function generateProposalWithAi(
     draft?: unknown
     error?: string
     model?: string
+    meta?: {
+      count_safe_answers?: number
+      count_filtered_personal_fields?: number
+    }
     upstreamStatus?: number
     openai?: { type?: string; code?: string; message?: string }
   }
@@ -255,5 +259,9 @@ export async function generateProposalWithAi(
     ok: true,
     draft: validated.draft,
     model: typeof payload.model === 'string' ? payload.model : undefined,
+    meta: {
+      countSafeAnswers: payload.meta?.count_safe_answers,
+      countFilteredPersonalFields: payload.meta?.count_filtered_personal_fields,
+    },
   }
 }

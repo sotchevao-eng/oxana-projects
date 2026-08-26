@@ -48,6 +48,10 @@ export interface GenerateProposalResponse {
   ok: boolean
   draft?: ProposalAiDraft
   model?: string
+  meta?: {
+    countSafeAnswers?: number
+    countFilteredPersonalFields?: number
+  }
   error?: string
   details?: GenerateProposalErrorDetails
 }

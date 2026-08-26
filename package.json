@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:pii": "tsx src/utils/piiSanitizer.selftest.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
@@ -25,6 +26,7 @@
     "oxlint": "^1.75.0",
     "supabase": "^2.115.0",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.12",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
   }

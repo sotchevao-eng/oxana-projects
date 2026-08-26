@@ -39,6 +39,7 @@ export interface BriefField {
   placeholder: string | null
   helpText: string | null
   required: boolean
+  isPersonalData: boolean
   options: string[] | null
   sortOrder: number
   createdAt: string
@@ -51,6 +52,7 @@ export interface BriefFieldInput {
   placeholder: string
   helpText: string
   required: boolean
+  isPersonalData: boolean
   options: string[]
   sortOrder: number
 }
@@ -93,6 +95,7 @@ export interface PublicBriefPayload {
     placeholder: string | null
     helpText: string | null
     required: boolean
+    isPersonalData?: boolean
     options: string[] | null | unknown
     sortOrder: number
   }>

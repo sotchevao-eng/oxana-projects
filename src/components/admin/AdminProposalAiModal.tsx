@@ -29,6 +29,7 @@ import {
   logProposalAiGeneration,
 } from '../../services/proposalService'
 import { formatProposalAiErrorForUi } from '../../utils/proposalAiValidate'
+import { applyProposalVariablesDeep } from '../../utils/piiSanitizer'
 
 const fieldClass =
   'w-full rounded-lg border border-border bg-bg px-3 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent/50 disabled:opacity-60'
@@ -72,6 +73,8 @@ export function AdminProposalAiModal({
   const [intro, setIntro] = useState('')
   const [sections, setSections] = useState<ProposalAiSectionDraft[]>([])
   const [model, setModel] = useState<string | undefined>()
+  const [safeAnswersCount, setSafeAnswersCount] = useState(0)
+  const [personalRemovedCount, setPersonalRemovedCount] = useState(0)
   const [briefFields, setBriefFields] = useState<BriefField[]>([])
   const [briefAnswers, setBriefAnswers] = useState<BriefAnswersMap>({})
   const [briefLoading, setBriefLoading] = useState(false)
@@ -93,6 +96,8 @@ export function AdminProposalAiModal({
     setIntro('')
     setSections([])
     setModel(undefined)
+    setSafeAnswersCount(0)
+    setPersonalRemovedCount(0)
     setError(null)
 
     let active = true
@@ -194,11 +199,18 @@ export function AdminProposalAiModal({
       return
     }
 
-    setTitle(result.draft.title)
-    setSubtitle(result.draft.subtitle)
-    setIntro(result.draft.intro)
-    setSections(result.draft.sections)
+    const localized = applyProposalVariablesDeep(result.draft, {
+      clientName: project.client?.name,
+      companyName: project.client?.company,
+    })
+
+    setTitle(localized.title)
+    setSubtitle(localized.subtitle)
+    setIntro(localized.intro)
+    setSections(localized.sections)
     setModel(result.model)
+    setSafeAnswersCount(result.meta?.countSafeAnswers ?? 0)
+    setPersonalRemovedCount(result.meta?.countFilteredPersonalFields ?? 0)
     setStep('preview')
   }
 
@@ -225,7 +237,8 @@ export function AdminProposalAiModal({
       hasPrice: Boolean(price.trim()),
       hasDeadline: Boolean(deadline.trim()),
       commentLength: comment.trim().length,
-      briefAnswersCount: Object.keys(briefAnswers).length,
+      briefAnswersCount: safeAnswersCount || Object.keys(briefAnswers).length,
+      personalFieldsRemovedCount: personalRemovedCount,
       model,
       draft,
     })
@@ -254,6 +267,12 @@ export function AdminProposalAiModal({
             </h2>
             <p className="mt-1 text-sm text-muted">
               Preview только. В базу попадёт после «Использовать этот вариант».
+            </p>
+            <p className="mt-2 rounded-xl border border-border bg-soft/50 px-3 py-2 text-xs leading-relaxed text-muted">
+              Для генерации в ИИ передаются только обезличенные данные проекта.
+              ФИО, телефон, email и другие поля, отмеченные как персональные,
+              исключаются до отправки запроса. Имя клиента подставляется локально
+              после ответа ИИ.
             </p>
           </div>
           <button

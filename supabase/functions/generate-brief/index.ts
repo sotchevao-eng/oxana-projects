@@ -1,8 +1,10 @@
 // Supabase Edge Function: generate-brief
 // Auth: requires Bearer JWT of authenticated admin.
 // Writes NOTHING to brief_fields — returns preview JSON only.
+// PD.2: OpenAI receives only whitelist-sanitized project context (no client PII).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
+import { sanitizeProjectForAi } from '../_shared/piiSanitizer.ts'
 
 const ALLOWED_TYPES = new Set([
   'short_text',
@@ -31,7 +33,7 @@ function jsonResponse(data: unknown, status = 200) {
   })
 }
 
-/** Application errors as HTTP 200 so supabase.functions.invoke returns `data`, not FunctionsHttpError. */
+/** Application errors as HTTP 200 so supabase.functions.invoke returns `data`. */
 function appError(code: string) {
   return jsonResponse({ ok: false, error: code }, 200)
 }
@@ -65,6 +67,7 @@ function validateAndNormalize(payload: Record<string, unknown>) {
     help_text: string
     required: boolean
     options: string[]
+    is_personal_data: boolean
   }> = []
 
   for (const raw of fieldsIn.slice(0, 20)) {
@@ -96,6 +99,11 @@ function validateAndNormalize(payload: Record<string, unknown>) {
       field_type = 'long_text'
     }
 
+    const is_personal_data =
+      field_type === 'email' ||
+      field_type === 'phone' ||
+      Boolean(item.is_personal_data)
+
     fields.push({
       label,
       field_key,
@@ -107,6 +115,7 @@ function validateAndNormalize(payload: Record<string, unknown>) {
         field_type === 'single_select' || field_type === 'multi_select'
           ? options
           : [],
+      is_personal_data,
     })
   }
 
@@ -155,28 +164,28 @@ Deno.serve(async (req) => {
 
     const body = await req.json()
     const projectId = String(body.projectId ?? '').trim()
-    const projectType = String(body.projectType ?? '').trim()
-    const description = String(body.description ?? '').trim()
-    const task = String(body.task ?? '').trim()
-    const aiComment = String(body.aiComment ?? '').trim()
-    const questionsCount = Math.min(
-      20,
-      Math.max(5, Number(body.questionsCount) || 10),
-    )
-
     if (!projectId) {
       return appError('project_required')
     }
 
+    // Whitelist-only project fields — never select clients.* or notes.
     const { data: project, error: projectError } = await userClient
       .from('client_projects')
-      .select('id, title, project_type, description, task, notes')
+      .select('id, project_type, description, task')
       .eq('id', projectId)
       .maybeSingle()
 
     if (projectError || !project) {
       return appError('project_not_found')
     }
+
+    const safePayload = sanitizeProjectForAi({
+      project_type: String(body.projectType ?? project.project_type ?? ''),
+      description: String(body.description ?? project.description ?? ''),
+      task: String(body.task ?? project.task ?? ''),
+      admin_comment: String(body.aiComment ?? ''),
+      questions_count: body.questionsCount,
+    })
 
     const system = `You are a senior digital project strategist helping prepare a client brief questionnaire.
 Return ONLY valid JSON (no markdown) with this exact shape:
@@ -191,28 +200,38 @@ Return ONLY valid JSON (no markdown) with this exact shape:
       "placeholder": "string",
       "help_text": "string",
       "required": true,
-      "options": []
+      "options": [],
+      "is_personal_data": false
     }
   ]
 }
 Rules:
-- Generate at most ${questionsCount} fields, never more than 20.
+- Generate at most ${safePayload.questions_count} fields, never more than 20.
 - field_key: lowercase latin letters, digits and underscore only; unique within fields.
 - Questions must be relevant to the project type and context.
 - Do not invent services, features or requirements that are not implied by the context.
-- Avoid unnecessary sensitive personal data.
+- For email/phone contact questions set is_personal_data=true.
+- Avoid unnecessary sensitive personal data beyond optional contact fields.
 - Use Russian for label, placeholder and help_text.
 - options must be non-empty only for single_select and multi_select.`
 
-    const userPrompt = `Project type: ${projectType || project.project_type}
-Title: ${project.title}
-Description: ${description || project.description || ''}
-Task: ${task || project.task || ''}
-Internal notes: ${project.notes || ''}
-Admin note for AI: ${aiComment}
-Desired number of questions: ${questionsCount}
+    const userPrompt = `Project type: ${safePayload.project_type}
+Description: ${safePayload.description}
+Task: ${safePayload.task}
+Admin note for AI: ${safePayload.admin_comment}
+Desired number of questions: ${safePayload.questions_count}
 
 Create a practical brief for the client to fill in.`
+
+    // Allowed diagnostics only — never log body/prompt/client.
+    console.info(
+      JSON.stringify({
+        event: 'generate_brief_start',
+        project_id: projectId,
+        generation_type: 'brief',
+        questions_count: safePayload.questions_count,
+      }),
+    )
 
     const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -232,6 +251,13 @@ Create a practical brief for the client to fill in.`
     })
 
     if (!aiRes.ok) {
+      console.info(
+        JSON.stringify({
+          event: 'generate_brief_openai_error',
+          project_id: projectId,
+          upstreamStatus: aiRes.status,
+        }),
+      )
       return appError('ai_request_failed')
     }
 
@@ -243,6 +269,15 @@ Create a practical brief for the client to fill in.`
 
     const parsed = JSON.parse(content) as Record<string, unknown>
     const draft = validateAndNormalize(parsed)
+
+    console.info(
+      JSON.stringify({
+        event: 'generate_brief_ok',
+        project_id: projectId,
+        generation_type: 'brief',
+        fields_count: draft.fields.length,
+      }),
+    )
 
     // Preview only — never persist to brief_fields here.
     return jsonResponse({ ok: true, draft })

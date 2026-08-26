@@ -124,6 +124,8 @@ export function friendlyProposalAiError(code?: string): string {
       return 'Слишком много секций (максимум 16).'
     case 'no_session':
       return 'Сессия не найдена. Войдите в админку снова.'
+    case 'pii_detected_in_ai_payload':
+      return 'Генерация остановлена: обнаружены данные, которые нельзя передавать в ИИ.'
     default:
       return code?.trim()
         ? code

@@ -52,11 +52,19 @@ export function BriefPage() {
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [privacyConsent, setPrivacyConsent] = useState(false)
   const formTopRef = useRef<HTMLDivElement | null>(null)
 
   const submitted =
     done || payload?.submission?.status === 'submitted'
   const isDraft = payload?.submission?.status === 'draft' && !submitted
+  const privacyPolicyPath = '/privacy'
+  const collectsPersonalData = (payload?.fields ?? []).some(
+    (field) =>
+      Boolean(field.isPersonalData) ||
+      field.fieldType === 'email' ||
+      field.fieldType === 'phone',
+  )
 
   useEffect(() => {
     let active = true
@@ -171,6 +179,14 @@ export function BriefPage() {
     if (!validateRequired()) {
       setSuccess(null)
       setError('Заполните все обязательные поля.')
+      scrollToErrors()
+      return
+    }
+    if (collectsPersonalData && !privacyConsent) {
+      setSuccess(null)
+      setError(
+        'Подтвердите согласие на обработку персональных данных перед отправкой.',
+      )
       scrollToErrors()
       return
     }
@@ -323,6 +339,13 @@ export function BriefPage() {
                     {field.required ? (
                       <span className="ml-1 text-accent">*</span>
                     ) : null}
+                    {field.isPersonalData ||
+                    field.fieldType === 'email' ||
+                    field.fieldType === 'phone' ? (
+                      <span className="ml-2 inline-flex items-center rounded-full border border-border bg-soft px-2 py-0.5 text-[11px] font-medium text-muted">
+                        🔒 Не передаётся в ИИ
+                      </span>
+                    ) : null}
                   </label>
                   {field.helpText ? (
                     <p className="mt-1 text-xs text-muted">{field.helpText}</p>
@@ -457,6 +480,36 @@ export function BriefPage() {
             })}
           </div>
         )}
+
+        {fields.length > 0 ? (
+          <p className="rounded-2xl border border-border bg-soft/40 px-4 py-3 text-xs leading-relaxed text-muted">
+            Персональные данные используются для обработки заявки и подготовки
+            документов. Они исключаются из данных, передаваемых в систему ИИ.
+          </p>
+        ) : null}
+
+        {!submitted && fields.length > 0 && collectsPersonalData ? (
+          <label className="flex items-start gap-3 rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-ink">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-border"
+              checked={privacyConsent}
+              onChange={(event) => setPrivacyConsent(event.target.checked)}
+            />
+            <span>
+              Я даю согласие на обработку персональных данных и ознакомлен(а) с{' '}
+              <Link
+                to={privacyPolicyPath}
+                className="text-accent underline-offset-2 hover:underline"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Политикой обработки персональных данных
+              </Link>
+              .
+            </span>
+          </label>
+        ) : null}
 
         {!submitted && fields.length > 0 ? (
           <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md sm:static sm:rounded-[1.5rem] sm:border sm:p-4 sm:shadow-card">

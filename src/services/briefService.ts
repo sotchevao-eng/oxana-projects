@@ -11,6 +11,7 @@ import type { Json } from '../types/database'
 import { WEBSITE_BRIEF_TEMPLATE } from '../types/brief'
 import { getSupabaseClient, isSupabaseConfigured } from './supabaseClient'
 import { isValidFieldKey } from '../utils/fieldKey'
+import { shouldMarkPersonalData } from '../utils/piiSanitizer'
 
 interface BriefFieldRow {
   id: string
@@ -21,6 +22,7 @@ interface BriefFieldRow {
   placeholder: string | null
   help_text: string | null
   required: boolean
+  is_personal_data?: boolean | null
   options: Json | null
   sort_order: number
   created_at: string
@@ -98,6 +100,7 @@ function mapField(row: BriefFieldRow): BriefField {
     placeholder: row.placeholder,
     helpText: row.help_text,
     required: row.required,
+    isPersonalData: Boolean(row.is_personal_data),
     options: parseOptions(row.options),
     sortOrder: row.sort_order,
     createdAt: row.created_at,
@@ -154,6 +157,9 @@ function friendlyAdminError(message?: string | null): string {
     lower.includes('could not find the table')
   ) {
     return 'Таблицы брифа ещё не созданы. Выполните supabase/brief-module.sql в Supabase SQL Editor.'
+  }
+  if (lower.includes('is_personal_data')) {
+    return 'Колонка is_personal_data ещё не создана. Выполните supabase/pii-classification.sql в SQL Editor.'
   }
   if (lower.includes('jwt') || lower.includes('not authenticated')) {
     return 'Сессия истекла. Войдите в админку снова.'
@@ -227,6 +233,12 @@ export async function createBriefField(
       placeholder: toNullable(input.placeholder),
       help_text: toNullable(input.helpText),
       required: input.required,
+      is_personal_data: shouldMarkPersonalData(
+        input.fieldKey,
+        input.label,
+        String(input.fieldType),
+        input.isPersonalData,
+      ),
       options: input.options.length > 0 ? input.options : null,
       sort_order: input.sortOrder,
     })
@@ -278,6 +290,12 @@ export async function updateBriefField(
       placeholder: toNullable(input.placeholder),
       help_text: toNullable(input.helpText),
       required: input.required,
+      is_personal_data: shouldMarkPersonalData(
+        input.fieldKey,
+        input.label,
+        String(input.fieldType),
+        input.isPersonalData,
+      ),
       options: input.options.length > 0 ? input.options : null,
       sort_order: input.sortOrder,
     })
@@ -368,6 +386,12 @@ export async function applyWebsiteBriefTemplate(
     placeholder: item.placeholder ?? null,
     help_text: item.helpText ?? null,
     required: Boolean(item.required),
+    is_personal_data: shouldMarkPersonalData(
+      item.fieldKey,
+      item.label,
+      item.fieldType,
+      false,
+    ),
     options: item.options ?? null,
     sort_order: startOrder + index,
   }))
@@ -434,6 +458,12 @@ export async function appendBriefFields(
       placeholder: toNullable(field.placeholder),
       help_text: toNullable(field.helpText),
       required: field.required,
+      is_personal_data: shouldMarkPersonalData(
+        key,
+        field.label,
+        String(field.fieldType),
+        field.isPersonalData,
+      ),
       options: field.options.length > 0 ? field.options : null,
       sort_order: startOrder + rows.length,
     })
@@ -506,6 +536,12 @@ export async function replaceBriefFields(
       placeholder: toNullable(field.placeholder),
       help_text: toNullable(field.helpText),
       required: field.required,
+      is_personal_data: shouldMarkPersonalData(
+        key,
+        field.label,
+        String(field.fieldType),
+        field.isPersonalData,
+      ),
       options: field.options.length > 0 ? field.options : null,
       sort_order: rows.length,
     })

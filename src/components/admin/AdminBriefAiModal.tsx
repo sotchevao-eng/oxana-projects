@@ -38,6 +38,10 @@ function toInput(field: BriefAiFieldDraft, sortOrder: number) {
     placeholder: field.placeholder,
     helpText: field.helpText,
     required: field.required,
+    isPersonalData:
+      field.fieldType === 'email' ||
+      field.fieldType === 'phone' ||
+      Boolean((field as { isPersonalData?: boolean }).isPersonalData),
     options: field.options,
     sortOrder,
   }
@@ -237,6 +241,11 @@ export function AdminBriefAiModal({
             </h2>
             <p className="mt-1 text-sm text-muted">
               Preview только. В бриф попадёт после вашего подтверждения.
+            </p>
+            <p className="mt-2 rounded-xl border border-border bg-soft/50 px-3 py-2 text-xs leading-relaxed text-muted">
+              Для генерации в ИИ передаются только обезличенные данные проекта.
+              ФИО, телефон, email и другие поля, отмеченные как персональные,
+              исключаются до отправки запроса.
             </p>
           </div>
           <button

@@ -608,6 +608,7 @@ export async function logProposalAiGeneration(params: {
   hasDeadline: boolean
   commentLength: number
   briefAnswersCount: number
+  personalFieldsRemovedCount?: number
   model?: string
   draft: ProposalAiDraft
 }): Promise<void> {
@@ -629,8 +630,8 @@ export async function logProposalAiGeneration(params: {
       proposal_style: params.proposalStyle,
       has_price: params.hasPrice,
       has_deadline: params.hasDeadline,
-      comment_length: params.commentLength,
-      brief_answers_count: params.briefAnswersCount,
+      safe_answers_count: params.briefAnswersCount,
+      personal_fields_removed_count: params.personalFieldsRemovedCount ?? 0,
     },
     output_json: {
       title: params.draft.title,
