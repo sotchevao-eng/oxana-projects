@@ -582,6 +582,18 @@
     color: var(--color-muted);
   }
 
+  [data-theme="dark"] .home-hero-lead {
+    color: #ffffff;
+    font-weight: 600;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  }
+
+  [data-theme="dark"] .home-hero-sub {
+    color: #e8f1ff;
+    font-weight: 500;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  }
+
   [data-theme="light"] .home-hero-lead {
     position: relative;
     color: #10245a;
