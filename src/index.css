@@ -538,6 +538,93 @@
     }
   }
 
+  .home-hero-bg,
+  .home-hero-fade {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+  }
+
+  .home-hero-bg {
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+
+  [data-theme="light"] .home-hero-bg {
+    background-image: url("/images/oksi-bg-light.png");
+    background-position: -12% 68%;
+  }
+
+  [data-theme="dark"] .home-hero-bg {
+    background-image: url("/images/oksi-bg-dark.png");
+    background-position: left center;
+    transform: scaleX(-1);
+  }
+
+  .home-hero-fade {
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      transparent 78%,
+      var(--color-bg) 100%
+    );
+  }
+
+  .home-hero-copy {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .home-hero-copy::before {
+    content: "";
+    position: absolute;
+    inset: -1.25rem -1rem -1.5rem -1.25rem;
+    z-index: -1;
+    border-radius: 2rem;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-bg) 58%, transparent) 0%,
+      color-mix(in srgb, var(--color-bg) 28%, transparent) 62%,
+      transparent 100%
+    );
+  }
+
+  @media (max-width: 1023px) {
+    .home-hero-bg {
+      background-size: 170% auto;
+      -webkit-mask-image: linear-gradient(
+        to bottom,
+        transparent 0%,
+        rgba(0, 0, 0, 0.12) 18%,
+        #000 52%
+      );
+      mask-image: linear-gradient(
+        to bottom,
+        transparent 0%,
+        rgba(0, 0, 0, 0.12) 18%,
+        #000 52%
+      );
+    }
+
+    [data-theme="light"] .home-hero-bg {
+      background-position: left -18% 112%;
+    }
+
+    [data-theme="dark"] .home-hero-bg {
+      background-position: left -8% 110%;
+    }
+
+    .home-hero-copy::before {
+      inset: -0.35rem 0 -0.5rem -0.15rem;
+      background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--color-bg) 88%, transparent) 0%,
+        color-mix(in srgb, var(--color-bg) 78%, transparent) 58%,
+        color-mix(in srgb, var(--color-bg) 20%, transparent) 100%
+      );
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .reveal {
       opacity: 1;

@@ -7,6 +7,7 @@ import {
   LogOut,
   ExternalLink,
   Settings,
+  Sparkles,
 } from 'lucide-react'
 
 export interface AdminNavItem {
@@ -34,6 +35,11 @@ export const adminPrimaryNav: AdminNavItem[] = [
     label: 'Клиентские проекты',
     to: '/admin/client-projects',
     icon: BriefcaseBusiness,
+  },
+  {
+    label: 'ОКСИ',
+    to: '/admin/oxana',
+    icon: Sparkles,
   },
   {
     label: 'Заявки',

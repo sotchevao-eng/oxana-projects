@@ -23,6 +23,7 @@ import { AdminProjectEditPage } from './pages/admin/AdminProjectEditPage'
 import { AdminProjectNewPage } from './pages/admin/AdminProjectNewPage'
 import { AdminProjectsPage } from './pages/admin/AdminProjectsPage'
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage'
+import { AdminOxanaPage } from './pages/admin/oxana/AdminOxanaPage'
 import { ContactsPage } from './pages/ContactsPage'
 import { HomePage } from './pages/HomePage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -83,6 +84,7 @@ export default function App() {
                       element={<AdminContactDetailPage />}
                     />
                     <Route path="settings" element={<AdminSettingsPage />} />
+                    <Route path="oxana" element={<AdminOxanaPage />} />
                     <Route path="*" element={<AdminNotFoundPage />} />
                   </Route>
                 </Route>
