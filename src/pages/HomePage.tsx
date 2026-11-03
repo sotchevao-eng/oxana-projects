@@ -36,20 +36,20 @@ export function HomePage() {
                 Создаю сайты и приложения под реальные задачи
               </h1>
               {hasText(settings.subtitle) ? (
-                <p className="max-w-lg text-base leading-relaxed text-muted md:text-lg">
+                <p className="home-hero-lead max-w-lg text-base leading-relaxed md:text-lg">
                   {settings.subtitle.trim()}
                 </p>
               ) : (
-                <p className="max-w-lg text-base leading-relaxed text-muted md:text-lg">
+                <p className="home-hero-lead max-w-lg text-base leading-relaxed md:text-lg">
                   От идеи и структуры до готового цифрового продукта.
                 </p>
               )}
               {hasText(settings.description) ? (
-                <p className="max-w-lg text-sm leading-relaxed text-muted md:text-base">
+                <p className="home-hero-sub max-w-lg text-sm leading-relaxed md:text-base">
                   {settings.description.trim()}
                 </p>
               ) : (
-                <p className="max-w-lg text-sm leading-relaxed text-muted md:text-base">
+                <p className="home-hero-sub max-w-lg text-sm leading-relaxed md:text-base">
                   Сайты, web-приложения, автоматизация и digital-решения.
                 </p>
               )}

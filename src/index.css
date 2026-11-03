@@ -552,13 +552,12 @@
 
   [data-theme="light"] .home-hero-bg {
     background-image: url("/images/oksi-bg-light.png");
-    background-position: -12% 68%;
+    background-position: left 42%;
   }
 
   [data-theme="dark"] .home-hero-bg {
     background-image: url("/images/oksi-bg-dark.png");
-    background-position: left center;
-    transform: scaleX(-1);
+    background-position: left 46%;
   }
 
   .home-hero-fade {
@@ -575,52 +574,56 @@
     isolation: isolate;
   }
 
+  .home-hero-lead {
+    color: var(--color-muted);
+  }
+
+  .home-hero-sub {
+    color: var(--color-muted);
+  }
+
+  [data-theme="light"] .home-hero-lead {
+    color: #102a5c;
+  }
+
+  [data-theme="light"] .home-hero-sub {
+    color: #2a3b55;
+  }
+
   .home-hero-copy::before {
+    content: none;
+  }
+
+  [data-theme="light"] .home-hero-copy::before {
     content: "";
     position: absolute;
-    inset: -1.25rem -1rem -1.5rem -1.25rem;
+    inset: -1rem -0.75rem -1.25rem -1rem;
     z-index: -1;
     border-radius: 2rem;
     background: linear-gradient(
       90deg,
-      color-mix(in srgb, var(--color-bg) 58%, transparent) 0%,
-      color-mix(in srgb, var(--color-bg) 28%, transparent) 62%,
+      rgb(247 249 252 / 0.62) 0%,
+      rgb(247 249 252 / 0.34) 58%,
       transparent 100%
     );
   }
 
   @media (max-width: 1023px) {
-    .home-hero-bg {
-      background-size: 170% auto;
-      -webkit-mask-image: linear-gradient(
-        to bottom,
-        transparent 0%,
-        rgba(0, 0, 0, 0.12) 18%,
-        #000 52%
-      );
-      mask-image: linear-gradient(
-        to bottom,
-        transparent 0%,
-        rgba(0, 0, 0, 0.12) 18%,
-        #000 52%
-      );
-    }
-
     [data-theme="light"] .home-hero-bg {
-      background-position: left -18% 112%;
+      background-position: left 18% 78%;
     }
 
     [data-theme="dark"] .home-hero-bg {
-      background-position: left -8% 110%;
+      background-position: left 22% 72%;
     }
 
-    .home-hero-copy::before {
-      inset: -0.35rem 0 -0.5rem -0.15rem;
+    [data-theme="light"] .home-hero-copy::before {
+      inset: -0.4rem 0 -0.55rem 0;
       background: linear-gradient(
         180deg,
-        color-mix(in srgb, var(--color-bg) 88%, transparent) 0%,
-        color-mix(in srgb, var(--color-bg) 78%, transparent) 58%,
-        color-mix(in srgb, var(--color-bg) 20%, transparent) 100%
+        rgb(247 249 252 / 0.7) 0%,
+        rgb(247 249 252 / 0.38) 68%,
+        transparent 100%
       );
     }
   }
