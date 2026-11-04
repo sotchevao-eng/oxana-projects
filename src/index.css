@@ -582,16 +582,35 @@
     color: var(--color-muted);
   }
 
+  [data-theme="dark"] .home-hero-lead,
+  [data-theme="dark"] .home-hero-sub {
+    position: relative;
+    color: #10245a;
+    text-shadow: none;
+  }
+
   [data-theme="dark"] .home-hero-lead {
-    color: #ffffff;
     font-weight: 600;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
   }
 
   [data-theme="dark"] .home-hero-sub {
-    color: #e8f1ff;
     font-weight: 500;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  }
+
+  [data-theme="dark"] .home-hero-lead::before,
+  [data-theme="dark"] .home-hero-sub::before {
+    content: "";
+    position: absolute;
+    inset: -0.18em -0.5em;
+    z-index: -1;
+    border-radius: 0.8rem;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      rgb(247 249 252 / 0.82) 0%,
+      rgb(247 249 252 / 0.62) 64%,
+      rgb(247 249 252 / 0.16) 100%
+    );
   }
 
   [data-theme="light"] .home-hero-lead {
@@ -677,6 +696,17 @@
         rgb(255 255 255 / 0.48) 0%,
         rgb(252 250 255 / 0.22) 70%,
         transparent 100%
+      );
+    }
+
+    [data-theme="dark"] .home-hero-lead::before,
+    [data-theme="dark"] .home-hero-sub::before {
+      inset: -0.12em -0.28em;
+      background: linear-gradient(
+        180deg,
+        rgb(247 249 252 / 0.84) 0%,
+        rgb(247 249 252 / 0.58) 70%,
+        rgb(247 249 252 / 0.14) 100%
       );
     }
   }
