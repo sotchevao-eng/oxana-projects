@@ -1,0 +1,35 @@
+{
+  "name": "oxana-pii-api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "start": "tsx src/index.ts",
+    "start:local": "tsx --env-file=.env src/index.ts",
+    "migrate:pii": "tsx --env-file=.env scripts/migrate-clients-pii.ts",
+    "migrate:pii:dry": "tsx --env-file=.env scripts/migrate-clients-pii.ts --dry-run",
+    "db:pii:test": "tsx --env-file=.env scripts/db-pii-test.ts",
+    "db:pii:tls-test": "tsx --env-file=.env scripts/db-pii-tls-test.ts",
+    "db:pii:network-test": "tsx --env-file=.env scripts/db-pii-network-test.ts",
+    "test": "tsx --test src/listen.test.ts src/safeLog.test.ts src/oxana/oxana.test.ts",
+    "test:oxana-db": "tsx scripts/oxana-local-db.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.6",
+    "@supabase/supabase-js": "^2.112.3",
+    "hono": "^4.13.16",
+    "jose": "^6.0.11",
+    "pg": "^8.16.0",
+    "tsx": "^4.20.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/pg": "^8.15.4",
+    "typescript": "~6.0.2"
+  }
+}

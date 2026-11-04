@@ -1,0 +1,855 @@
+import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, test } from 'node:test'
+import { SignJWT } from 'jose'
+import { resolveCaCertPath, SERVER_ROOT } from '../db.js'
+import { createApp } from '../app.js'
+import { inspectOxanaDatabaseUrl, shouldDisableOxanaSsl } from './db.js'
+import { MemoryOxanaRepo } from './memoryRepo.js'
+import { createSupabaseTokenVerifier } from './tokenVerifier.js'
+
+const TEST_SECRET = 'oxana-test-jwt-secret-please-change'
+const OWNER_A = '11111111-1111-4111-8111-111111111111'
+const OWNER_B = '22222222-2222-4222-8222-222222222222'
+const STRANGER = '33333333-3333-4333-8333-333333333333'
+
+async function signToken(userId: string): Promise<string> {
+  return new SignJWT({ sub: userId })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(userId)
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(new TextEncoder().encode(TEST_SECRET))
+}
+
+async function readJson(response: Response): Promise<Record<string, unknown>> {
+  return (await response.json()) as Record<string, unknown>
+}
+
+let previousAllowlist: string | undefined
+let previousJwtSecret: string | undefined
+let previousOxanaUrl: string | undefined
+
+beforeEach(() => {
+  previousAllowlist = process.env.OXANA_ALLOWED_USER_IDS
+  previousJwtSecret = process.env.SUPABASE_JWT_SECRET
+  previousOxanaUrl = process.env.OXANA_DATABASE_URL
+  process.env.SUPABASE_JWT_SECRET = TEST_SECRET
+  process.env.OXANA_ALLOWED_USER_IDS = `${OWNER_A},${OWNER_B}`
+  delete process.env.OXANA_DATABASE_URL
+})
+
+afterEach(() => {
+  if (previousAllowlist === undefined) {
+    delete process.env.OXANA_ALLOWED_USER_IDS
+  } else {
+    process.env.OXANA_ALLOWED_USER_IDS = previousAllowlist
+  }
+  if (previousJwtSecret === undefined) {
+    delete process.env.SUPABASE_JWT_SECRET
+  } else {
+    process.env.SUPABASE_JWT_SECRET = previousJwtSecret
+  }
+  if (previousOxanaUrl === undefined) {
+    delete process.env.OXANA_DATABASE_URL
+  } else {
+    process.env.OXANA_DATABASE_URL = previousOxanaUrl
+  }
+})
+
+test('rejects missing bearer token', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const response = await app.request('/api/oxana/tasks')
+  const body = await readJson(response)
+  assert.equal(response.status, 401)
+  assert.equal(body.error, 'unauthorized')
+})
+
+test('rejects valid JWT that is not on the allowlist', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(STRANGER)
+  const response = await app.request('/api/oxana/tasks', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const body = await readJson(response)
+  assert.equal(response.status, 403)
+  assert.equal(body.error, 'oxana_forbidden')
+})
+
+test('fails closed when allowlist is empty', async () => {
+  process.env.OXANA_ALLOWED_USER_IDS = ''
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const response = await app.request('/api/oxana/tasks', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const body = await readJson(response)
+  assert.equal(response.status, 503)
+  assert.equal(body.error, 'oxana_allowlist_missing')
+})
+
+test('creates and lists tasks for the owner workspace only', async () => {
+  const repo = new MemoryOxanaRepo()
+  const app = createApp({ oxanaRepo: repo })
+  const tokenA = await signToken(OWNER_A)
+  const tokenB = await signToken(OWNER_B)
+
+  const created = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Собрать бриф', description: 'до пятницы' }),
+  })
+  const createdBody = await readJson(created)
+  assert.equal(created.status, 201)
+  assert.equal(createdBody.ok, true)
+  const task = createdBody.task as Record<string, unknown>
+  assert.equal(task.title, 'Собрать бриф')
+  assert.equal(task.status, 'open')
+  assert.equal(task.createdBy, OWNER_A)
+
+  const listA = await app.request('/api/oxana/tasks', {
+    headers: { Authorization: `Bearer ${tokenA}` },
+  })
+  const listABody = await readJson(listA)
+  assert.equal(listA.status, 200)
+  assert.equal((listABody.tasks as unknown[]).length, 1)
+
+  const listB = await app.request('/api/oxana/tasks', {
+    headers: { Authorization: `Bearer ${tokenB}` },
+  })
+  const listBBody = await readJson(listB)
+  assert.equal(listB.status, 200)
+  assert.equal((listBBody.tasks as unknown[]).length, 0)
+})
+
+test('cannot change another workspace task status', async () => {
+  const repo = new MemoryOxanaRepo()
+  const app = createApp({ oxanaRepo: repo })
+  const tokenA = await signToken(OWNER_A)
+  const tokenB = await signToken(OWNER_B)
+
+  const created = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Чужая задача' }),
+  })
+  const createdBody = await readJson(created)
+  const task = createdBody.task as Record<string, unknown>
+
+  const patched = await app.request(`/api/oxana/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${tokenB}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status: 'done' }),
+  })
+  const patchedBody = await readJson(patched)
+  assert.equal(patched.status, 404)
+  assert.equal(patchedBody.error, 'oxana_not_found')
+})
+
+test('rejects empty task title', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const response = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: '   ' }),
+  })
+  const body = await readJson(response)
+  assert.equal(response.status, 400)
+  assert.equal(body.error, 'title_required')
+})
+
+test('updates task status for the owner', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const created = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Проверить календарь' }),
+  })
+  const createdBody = await readJson(created)
+  const task = createdBody.task as Record<string, unknown>
+
+  const patched = await app.request(`/api/oxana/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status: 'in_progress' }),
+  })
+  const patchedBody = await readJson(patched)
+  assert.equal(patched.status, 200)
+  assert.equal((patchedBody.task as Record<string, unknown>).status, 'in_progress')
+})
+
+test('lists created projects for the same workspace only', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const tokenA = await signToken(OWNER_A)
+  const tokenB = await signToken(OWNER_B)
+
+  const created = await app.request('/api/oxana/projects', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Кабинет ОКСИ' }),
+  })
+  assert.equal(created.status, 201)
+
+  const listA = await readJson(
+    await app.request('/api/oxana/projects', {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }),
+  )
+  const listB = await readJson(
+    await app.request('/api/oxana/projects', {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    }),
+  )
+  assert.equal((listA.projects as unknown[]).length, 1)
+  assert.equal((listB.projects as unknown[]).length, 0)
+})
+
+test('does not fake a successful write when OXANA DB is missing', async () => {
+  const app = createApp()
+  const token = await signToken(OWNER_A)
+  const response = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Не должна сохраниться' }),
+  })
+  const body = await readJson(response)
+  assert.equal(response.status, 503)
+  assert.equal(body.error, 'oxana_db_unavailable')
+  assert.equal(body.ok, false)
+})
+
+test('chat contract refuses to impersonate a working model', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const response = await app.request('/api/oxana/chat', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ message: 'Привет, Окси' }),
+  })
+  const body = await readJson(response)
+  assert.equal(response.status, 503)
+  assert.equal(body.error, 'ai_not_configured')
+  assert.equal(body.ok, false)
+  assert.equal(body.reply, undefined)
+})
+
+test('existing PII health and unauthorized PII write still work', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const health = await readJson(await app.request('/api/health'))
+  assert.equal(health.ok, true)
+  assert.equal(health.service, 'oxana-pii-api')
+
+  const pii = await app.request('/api/pii', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fullName: 'Test' }),
+  })
+  const piiBody = await readJson(pii)
+  assert.equal(pii.status, 401)
+  assert.equal(piiBody.error, 'unauthorized')
+})
+
+test('OXANA DB URL cannot point at Supabase', () => {
+  assert.throws(() =>
+    inspectOxanaDatabaseUrl(
+      'postgresql://postgres.abc@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres',
+    ),
+  )
+  const local = inspectOxanaDatabaseUrl(
+    'postgresql://oxana:oxana_test@127.0.0.1:55432/oxana_ai_test',
+  )
+  assert.equal(local.hostname, '127.0.0.1')
+  assert.equal(shouldDisableOxanaSsl('twc1.net'), false)
+})
+
+test('token verifier stays swappable without changing task routes', () => {
+  const verifier = createSupabaseTokenVerifier()
+  assert.equal(verifier.provider, 'supabase')
+})
+
+test('links a task to a workspace project and keeps personal tasks', async () => {
+  const repo = new MemoryOxanaRepo()
+  const app = createApp({ oxanaRepo: repo })
+  const tokenA = await signToken(OWNER_A)
+  const tokenB = await signToken(OWNER_B)
+
+  const projectA = await readJson(
+    await app.request('/api/oxana/projects', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Кабинет ОКСИ' }),
+    }),
+  )
+  const projectB = await readJson(
+    await app.request('/api/oxana/projects', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokenB}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Чужой проект' }),
+    }),
+  )
+  const projectAId = (projectA.project as Record<string, unknown>).id
+  const projectBId = (projectB.project as Record<string, unknown>).id
+
+  const personal = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Личная задача' }),
+    }),
+  )
+  assert.equal(personal.ok, true)
+  assert.equal((personal.task as Record<string, unknown>).projectId, null)
+
+  const linked = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: 'Собрать бриф',
+      projectId: projectAId,
+    }),
+  })
+  const linkedBody = await readJson(linked)
+  assert.equal(linked.status, 201)
+  assert.equal((linkedBody.task as Record<string, unknown>).projectId, projectAId)
+  assert.equal(
+    (linkedBody.task as Record<string, unknown>).projectTitle,
+    'Кабинет ОКСИ',
+  )
+
+  const foreign = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: 'Не должна привязаться',
+      projectId: projectBId,
+    }),
+  })
+  const foreignBody = await readJson(foreign)
+  assert.equal(foreign.status, 404)
+  assert.equal(foreignBody.error, 'oxana_not_found')
+
+  const taskId = (linkedBody.task as Record<string, unknown>).id as string
+  const moved = await readJson(
+    await app.request(`/api/oxana/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ projectId: null }),
+    }),
+  )
+  assert.equal(moved.ok, true)
+  assert.equal((moved.task as Record<string, unknown>).projectId, null)
+
+  const restored = await readJson(
+    await app.request(`/api/oxana/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ projectId: projectAId }),
+    }),
+  )
+  assert.equal((restored.task as Record<string, unknown>).projectId, projectAId)
+
+  const card = await app.request(`/api/oxana/projects/${projectAId}`, {
+    headers: { Authorization: `Bearer ${tokenA}` },
+  })
+  const cardBody = await readJson(card)
+  assert.equal(card.status, 200)
+  assert.equal((cardBody.tasks as unknown[]).length, 1)
+
+  const stolen = await app.request(`/api/oxana/projects/${projectAId}`, {
+    headers: { Authorization: `Bearer ${tokenB}` },
+  })
+  const stolenBody = await readJson(stolen)
+  assert.equal(stolen.status, 404)
+  assert.equal(stolenBody.error, 'oxana_not_found')
+})
+
+test('creates, edits and deletes events only inside the owner workspace', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const tokenA = await signToken(OWNER_A)
+  const tokenB = await signToken(OWNER_B)
+  const startsAt = new Date(Date.now() + 3600_000).toISOString()
+
+  const created = await app.request('/api/oxana/events', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Созвон с клиентом', startsAt }),
+  })
+  const createdBody = await readJson(created)
+  assert.equal(created.status, 201)
+  const eventId = (createdBody.event as Record<string, unknown>).id as string
+
+  const listB = await readJson(
+    await app.request('/api/oxana/events', {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    }),
+  )
+  assert.equal((listB.events as unknown[]).length, 0)
+
+  const stolen = await app.request(`/api/oxana/events/${eventId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${tokenB}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Чужое' }),
+  })
+  assert.equal(stolen.status, 404)
+
+  const patched = await readJson(
+    await app.request(`/api/oxana/events/${eventId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Созвон перенесён' }),
+    }),
+  )
+  assert.equal((patched.event as Record<string, unknown>).title, 'Созвон перенесён')
+
+  const deletedByStranger = await app.request(`/api/oxana/events/${eventId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${tokenB}` },
+  })
+  assert.equal(deletedByStranger.status, 404)
+
+  const deleted = await app.request(`/api/oxana/events/${eventId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${tokenA}` },
+  })
+  assert.equal(deleted.status, 200)
+})
+
+test('edits a task and rejects a foreign delete', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const tokenA = await signToken(OWNER_A)
+  const tokenB = await signToken(OWNER_B)
+  const dueAt = new Date(Date.now() + 86_400_000).toISOString()
+  const created = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Старое название' }),
+    }),
+  )
+  const taskId = (created.task as Record<string, unknown>).id as string
+
+  const patched = await readJson(
+    await app.request(`/api/oxana/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Новое название', dueAt }),
+    }),
+  )
+  assert.equal((patched.task as Record<string, unknown>).title, 'Новое название')
+  assert.equal((patched.task as Record<string, unknown>).dueAt, dueAt)
+
+  const stolen = await app.request(`/api/oxana/tasks/${taskId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${tokenB}` },
+  })
+  assert.equal(stolen.status, 404)
+})
+
+test('deleting a project keeps tasks as personal', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const project = await readJson(
+    await app.request('/api/oxana/projects', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Временный проект' }),
+    }),
+  )
+  const projectId = (project.project as Record<string, unknown>).id as string
+  const task = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Останется личной', projectId }),
+    }),
+  )
+  const taskId = (task.task as Record<string, unknown>).id as string
+
+  const renamed = await readJson(
+    await app.request(`/api/oxana/projects/${projectId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Переименован', status: 'paused' }),
+    }),
+  )
+  assert.equal((renamed.project as Record<string, unknown>).status, 'paused')
+
+  const deleted = await app.request(`/api/oxana/projects/${projectId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  assert.equal(deleted.status, 200)
+
+  const list = await readJson(
+    await app.request('/api/oxana/tasks', {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+  )
+  const leftover = (list.tasks as Array<Record<string, unknown>>).find(
+    (item) => item.id === taskId,
+  )
+  assert.equal(leftover?.projectId, null)
+})
+
+test('notifications stay inside the workspace and can be marked read', async () => {
+  const repo = new MemoryOxanaRepo()
+  const app = createApp({ oxanaRepo: repo })
+  const tokenA = await signToken(OWNER_A)
+  const tokenB = await signToken(OWNER_B)
+  const status = await readJson(
+    await app.request('/api/oxana/status', {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }),
+  )
+  const workspaceId = (status.workspace as Record<string, unknown>).id as string
+  const note = repo.addNotification(
+    workspaceId,
+    OWNER_A,
+    'Срок задачи сегодня',
+    `[[task:${OWNER_A}]]\nПроверить бриф`,
+  )
+
+  const listB = await readJson(
+    await app.request('/api/oxana/notifications', {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    }),
+  )
+  assert.equal((listB.notifications as unknown[]).length, 0)
+
+  const stolen = await app.request(`/api/oxana/notifications/${note.id}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${tokenB}` },
+  })
+  assert.equal(stolen.status, 404)
+
+  const marked = await readJson(
+    await app.request(`/api/oxana/notifications/${note.id}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }),
+  )
+  assert.ok((marked.notification as Record<string, unknown>).readAt)
+
+  const readAll = await readJson(
+    await app.request('/api/oxana/notifications/read-all', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }),
+  )
+  assert.equal(readAll.ok, true)
+})
+
+test('settings and overview use workspace data without leaking foreign items', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const tokenA = await signToken(OWNER_A)
+  const tokenB = await signToken(OWNER_B)
+  const dueAt = new Date(Date.now() + 60_000).toISOString()
+
+  await app.request('/api/oxana/settings', {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      displayName: 'Оксана',
+      timezone: 'Europe/Samara',
+      dateFormat: 'date',
+    }),
+  })
+  const settings = await readJson(
+    await app.request('/api/oxana/settings', {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }),
+  )
+  const saved = settings.settings as Record<string, unknown>
+  assert.equal(saved.displayName, 'Оксана')
+  assert.equal(saved.timezone, 'Europe/Samara')
+
+  await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Сегодняшняя', dueAt }),
+  })
+  const overviewA = await readJson(
+    await app.request('/api/oxana/overview', {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }),
+  )
+  const overviewB = await readJson(
+    await app.request('/api/oxana/overview', {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    }),
+  )
+  assert.equal(overviewA.displayName, 'Оксана')
+  assert.ok(((overviewA.todayTasks as unknown[]) ?? []).length >= 1)
+  assert.equal((overviewB.todayTasks as unknown[]).length, 0)
+})
+
+test('rejects an event without a valid start time', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const response = await app.request('/api/oxana/events', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Без времени' }),
+  })
+  const body = await readJson(response)
+  assert.equal(response.status, 400)
+  assert.equal(body.error, 'invalid_starts_at')
+})
+
+test('persists cabinet migration fields and keeps them workspace-scoped', async () => {
+  const repo = new MemoryOxanaRepo()
+  const app = createApp({ oxanaRepo: repo })
+  const tokenA = await signToken(OWNER_A)
+  const tokenB = await signToken(OWNER_B)
+  const startsAt = new Date(Date.now() + 2 * 86_400_000).toISOString()
+  const dueAt = new Date(Date.now() + 3 * 86_400_000).toISOString()
+
+  const project = await readJson(
+    await app.request('/api/oxana/projects', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: 'QA-проект кабинет',
+        status: 'planned',
+        startsAt,
+        dueAt,
+      }),
+    }),
+  )
+  assert.equal(project.ok, true)
+  const projectRow = project.project as Record<string, unknown>
+  assert.equal(projectRow.status, 'planned')
+  assert.equal(projectRow.startsAt, startsAt)
+  assert.equal(projectRow.dueAt, dueAt)
+  const projectId = projectRow.id as string
+
+  const task = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: 'QA-задача срочная',
+        priority: 'urgent',
+        projectId,
+        dueAt,
+      }),
+    }),
+  )
+  const taskRow = task.task as Record<string, unknown>
+  assert.equal(taskRow.priority, 'urgent')
+  assert.equal(taskRow.archivedAt, null)
+  assert.equal(taskRow.projectId, projectId)
+  const taskId = taskRow.id as string
+
+  const archived = await readJson(
+    await app.request(`/api/oxana/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ archivedAt: new Date().toISOString() }),
+    }),
+  )
+  assert.ok((archived.task as Record<string, unknown>).archivedAt)
+
+  const overviewWhileArchived = await readJson(
+    await app.request('/api/oxana/overview', {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }),
+  )
+  assert.equal((overviewWhileArchived.overdueTasks as unknown[]).length, 0)
+
+  const restored = await readJson(
+    await app.request(`/api/oxana/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ archivedAt: null, status: 'in_progress' }),
+    }),
+  )
+  assert.equal((restored.task as Record<string, unknown>).archivedAt, null)
+  assert.equal((restored.task as Record<string, unknown>).status, 'in_progress')
+
+  const event = await readJson(
+    await app.request('/api/oxana/events', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: 'QA-событие проекта',
+        description: 'проверка связи',
+        startsAt,
+        projectId,
+      }),
+    }),
+  )
+  const eventRow = event.event as Record<string, unknown>
+  assert.equal(eventRow.projectId, projectId)
+  assert.equal(eventRow.projectTitle, 'QA-проект кабинет')
+  assert.equal(eventRow.description, 'проверка связи')
+
+  const stolen = await app.request(`/api/oxana/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${tokenB}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ priority: 'low' }),
+  })
+  assert.equal(stolen.status, 404)
+
+  const badPriority = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'QA-плохой приоритет', priority: 'critical' }),
+  })
+  assert.equal(badPriority.status, 400)
+
+  const note = repo.addNotification(
+    ((
+      await readJson(
+        await app.request('/api/oxana/status', {
+          headers: { Authorization: `Bearer ${tokenA}` },
+        }),
+      )
+    ).workspace as Record<string, unknown>).id as string,
+    OWNER_A,
+    'Срок задачи сегодня',
+    `[[task:${taskId}]]\nQA переход`,
+    'task',
+    taskId,
+  )
+  const notes = await readJson(
+    await app.request('/api/oxana/notifications', {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }),
+  )
+  const listed = (notes.notifications as Array<Record<string, unknown>>).find(
+    (item) => item.id === note.id,
+  )
+  assert.equal(listed?.sourceType, 'task')
+  assert.equal(listed?.sourceId, taskId)
+})
+
+test('health endpoint stays public and does not depend on the database', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const response = await app.request('/api/health')
+  const body = await readJson(response)
+  assert.equal(response.status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(body.service, 'oxana-pii-api')
+})
+
+test('CA path ./certs/root.crt resolves from server root, not cwd', () => {
+  const expected = path.resolve(SERVER_ROOT, 'certs', 'root.crt')
+  const fromServerDir = resolveCaCertPath('./certs/root.crt')
+  const previousCwd = process.cwd()
+  process.chdir(os.tmpdir())
+  try {
+    const fromOtherCwd = resolveCaCertPath('./certs/root.crt')
+    assert.equal(fromServerDir, expected)
+    assert.equal(fromOtherCwd, expected)
+    assert.equal(existsSync(fromOtherCwd), true)
+  } finally {
+    process.chdir(previousCwd)
+  }
+})

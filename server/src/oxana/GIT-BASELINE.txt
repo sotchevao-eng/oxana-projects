@@ -1,0 +1,18 @@
+OXANA AI development baseline
+Date: 2026-11-03
+Branch: main
+HEAD: bdd9c2b Isolate personal data from AI generation payloads.
+Remote: origin/main (up to date)
+
+Tracked files: clean (no staged or unstaged modifications).
+
+Untracked at start of this stage (left untouched unless noted):
+- russian-postgres/client_pii.sql
+- russian-postgres/rename-client-pii-columns.sql
+- server/ entire PII API
+- supabase/.temp/
+- supabase/pii-ref-migration.sql
+- supabase/pii-scrub-after-cutover.sql
+
+Rule: do not overwrite PII API, existing Auth, or Supabase tables.
+OXANA AI is added as a new schema + new server module + new admin page.

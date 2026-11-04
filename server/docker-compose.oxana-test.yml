@@ -1,0 +1,13 @@
+# Isolated local Postgres for OXANA AI schema checks.
+# Not for production. Does not use Timeweb or Supabase.
+services:
+  oxana-pg:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: oxana_ai_test
+      POSTGRES_USER: oxana
+      POSTGRES_PASSWORD: oxana_test
+    ports:
+      - "55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data

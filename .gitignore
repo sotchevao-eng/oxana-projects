@@ -14,6 +14,18 @@ dist-ssr
 .env
 .env.*
 !.env.example
+*.crt
+*.pem
+*.key
+
+# Backend source in server/ is tracked. Secrets and runtime files are not.
+server/.env
+server/.env.*
+!server/.env.example
+server/certs/
+server/node_modules/
+server/tmp/
+server/coverage/
 
 # Editor directories and files
 .vscode/*

@@ -1,0 +1,17 @@
+.env
+.env.local
+.env.*
+!.env.example
+src/oxana/TIMEWEB-LAUNCH.txt
+*.log
+logs/
+tmp/
+*.tmp
+node_modules/
+certs/
+*.crt
+*.pem
+*.key
+*.tgz
+coverage/
+.DS_Store
