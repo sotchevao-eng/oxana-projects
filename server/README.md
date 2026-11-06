@@ -101,6 +101,7 @@ This folder is a separate Timeweb App Platform **Backend** app (Moscow), not the
 - Health: `GET /api/health`
 - Bind: `0.0.0.0` and `PORT`
 - Do not upload `.env`, certificates from git, or `VITE_*` secrets
+- `OXANA_DATABASE_URL` host = official PostgreSQL domain; `OXANA_DB_CONNECT_HOST` = private IPv4 for TCP
 - Reminders start in this process unless `OXANA_REMINDERS=disable`
 
 See `.env.example` for variable names only. Do not open PostgreSQL `:5432` to the internet.

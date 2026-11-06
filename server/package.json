@@ -15,7 +15,7 @@
     "db:pii:test": "tsx --env-file=.env scripts/db-pii-test.ts",
     "db:pii:tls-test": "tsx --env-file=.env scripts/db-pii-tls-test.ts",
     "db:pii:network-test": "tsx --env-file=.env scripts/db-pii-network-test.ts",
-    "test": "tsx --test src/listen.test.ts src/safeLog.test.ts src/oxana/oxana.test.ts",
+    "test": "tsx --test src/listen.test.ts src/safeLog.test.ts src/oxana/db.network.test.ts src/oxana/oxana.test.ts",
     "test:oxana-db": "tsx scripts/oxana-local-db.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
