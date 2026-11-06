@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { oxanaAiProvider } from './aiAdapter.js'
 import { createRequireOxanaOwner } from './auth.js'
+import { getOxanaReminderSchedulerStatus } from './reminderScheduler.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from './tokenVerifier.js'
 import {
   OxanaAiNotConfiguredError,
@@ -96,6 +97,7 @@ export function createOxanaRouter(
           telegram: false,
           max: false,
         },
+        reminders: getOxanaReminderSchedulerStatus(),
       })
     } catch (error) {
       const mapped = jsonError(error)

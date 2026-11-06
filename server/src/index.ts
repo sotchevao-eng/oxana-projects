@@ -4,6 +4,7 @@ import { closePiiPool } from './db.js'
 import { resolveListenOptions } from './listen.js'
 import { closeOxanaPool } from './oxana/db.js'
 import {
+  getOxanaReminderSchedulerStatus,
   startOxanaReminderScheduler,
   stopOxanaReminderScheduler,
 } from './oxana/reminderScheduler.js'
@@ -18,7 +19,7 @@ const server = serve({ fetch: app.fetch, port, hostname }, () => {
       event: 'pii_api_listen',
       port,
       hostname,
-      reminders: process.env.OXANA_REMINDERS === 'disable' ? 'off' : 'local',
+      reminders: getOxanaReminderSchedulerStatus(),
     }),
   )
 })

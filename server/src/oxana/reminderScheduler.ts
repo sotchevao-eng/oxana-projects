@@ -1,10 +1,47 @@
 import { getOxanaPool, isOxanaDatabaseConfigured } from './db.js'
+import {
+  isRemindersEnvEnabled,
+  REMINDER_TICK_MS,
+  safeReminderTickErrorCode,
+} from './reminderPolicy.js'
 import { parseNotificationSource } from './validation.js'
 
-const TICK_MS = 60_000
+export interface OxanaReminderSchedulerStatus {
+  enabled: boolean
+  running: boolean
+  last_tick_at: string | null
+  last_tick_success: boolean | null
+  last_tick_error_code: string | null
+}
+
+type ReminderTickFn = () => Promise<number>
 
 let timer: NodeJS.Timeout | null = null
 let ticking = false
+let lastTickAt: string | null = null
+let lastTickSuccess: boolean | null = null
+let lastTickErrorCode: string | null = null
+let tickOverride: ReminderTickFn | null = null
+
+function logReminderEvent(payload: Record<string, unknown>): void {
+  console.info(JSON.stringify(payload))
+}
+
+function recordTick(success: boolean, errorCode: string | null): void {
+  lastTickAt = new Date().toISOString()
+  lastTickSuccess = success
+  lastTickErrorCode = success ? null : errorCode
+}
+
+export function getOxanaReminderSchedulerStatus(): OxanaReminderSchedulerStatus {
+  return {
+    enabled: isRemindersEnvEnabled(),
+    running: timer !== null,
+    last_tick_at: lastTickAt,
+    last_tick_success: lastTickSuccess,
+    last_tick_error_code: lastTickErrorCode,
+  }
+}
 
 export async function processDueReminderJobs(): Promise<number> {
   if (!isOxanaDatabaseConfigured()) {
@@ -71,38 +108,62 @@ export async function processDueReminderJobs(): Promise<number> {
       }
     }
     await client.query('commit')
-  } catch {
+    return sent
+  } catch (error) {
     try {
       await client.query('rollback')
     } catch {
       // ignore
     }
+    const wrapped = new Error('oxana_reminder_tick_failed')
+    wrapped.name = 'OxanaReminderTickError'
+    ;(wrapped as Error & { code: string }).code =
+      safeReminderTickErrorCode(error)
+    throw wrapped
   } finally {
     client.release()
   }
-  return sent
 }
 
-export function startOxanaReminderScheduler(): void {
-  // One timer per process. Duplicate sends are also blocked in the database
-  // by FOR UPDATE SKIP LOCKED and the jobs.idempotency_key unique index.
-  if (timer || process.env.OXANA_REMINDERS === 'disable') {
+async function runScheduledTick(): Promise<void> {
+  if (ticking) {
     return
   }
-  if (!isOxanaDatabaseConfigured()) {
+  ticking = true
+  try {
+    const tick = tickOverride ?? processDueReminderJobs
+    await tick()
+    logReminderEvent({ event: 'oxana_reminder_tick', ok: true })
+    recordTick(true, null)
+  } catch (error) {
+    const errorCode = safeReminderTickErrorCode(error)
+    logReminderEvent({
+      event: 'oxana_reminder_tick',
+      ok: false,
+      error_code: errorCode,
+    })
+    recordTick(false, errorCode)
+  } finally {
+    ticking = false
+  }
+}
+
+export function startOxanaReminderScheduler(options: {
+  processTick?: ReminderTickFn
+} = {}): void {
+  if (timer || !isRemindersEnvEnabled()) {
+    return
+  }
+  if (options.processTick) {
+    tickOverride = options.processTick
+  } else if (!isOxanaDatabaseConfigured()) {
     return
   }
   const tick = () => {
-    if (ticking) return
-    ticking = true
-    void processDueReminderJobs()
-      .catch(() => undefined)
-      .finally(() => {
-        ticking = false
-      })
+    void runScheduledTick()
   }
   tick()
-  timer = setInterval(tick, TICK_MS)
+  timer = setInterval(tick, REMINDER_TICK_MS)
   timer.unref?.()
 }
 
@@ -111,4 +172,17 @@ export function stopOxanaReminderScheduler(): void {
     clearInterval(timer)
     timer = null
   }
+}
+
+export async function runOxanaReminderTickForTests(): Promise<void> {
+  await runScheduledTick()
+}
+
+export function resetOxanaReminderSchedulerForTests(): void {
+  stopOxanaReminderScheduler()
+  ticking = false
+  lastTickAt = null
+  lastTickSuccess = null
+  lastTickErrorCode = null
+  tickOverride = null
 }

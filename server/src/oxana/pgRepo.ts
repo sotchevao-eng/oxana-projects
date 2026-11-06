@@ -18,6 +18,7 @@ import type {
   UpdateProjectInput,
   UpdateTaskInput,
 } from './types.js'
+import { isReminderRunAtTooOld } from './reminderPolicy.js'
 import { DEFAULT_OWNER_SETTINGS, mergeSettings } from './settingsDefaults.js'
 import { startOfDay } from './time.js'
 import { parseNotificationSource } from './validation.js'
@@ -939,7 +940,7 @@ export class PgOxanaRepo implements OxanaRepository {
   ) {
     const pool = this.requirePool()
     for (const job of jobs) {
-      if (!job || job.runAt.getTime() <= Date.now() - 60_000) continue
+      if (!job || isReminderRunAtTooOld(job.runAt)) continue
       await pool.query(
         `insert into oxana.jobs (
            workspace_id, kind, payload, run_at, status, idempotency_key

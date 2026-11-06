@@ -803,6 +803,17 @@ test('persists cabinet migration fields and keeps them workspace-scoped', async 
     body: JSON.stringify({ title: 'QA-плохой приоритет', priority: 'critical' }),
   })
   assert.equal(badPriority.status, 400)
+  const mediumPriority = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'QA-средний приоритет', priority: 'medium' }),
+  })
+  const mediumBody = await readJson(mediumPriority)
+  assert.equal(mediumPriority.status, 400)
+  assert.equal(mediumBody.error, 'invalid_priority')
 
   const note = repo.addNotification(
     ((
@@ -837,6 +848,36 @@ test('health endpoint stays public and does not depend on the database', async (
   assert.equal(response.status, 200)
   assert.equal(body.ok, true)
   assert.equal(body.service, 'oxana-pii-api')
+  assert.equal('reminders' in body, false)
+})
+
+test('owner status exposes reminder scheduler diagnostics', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const response = await app.request('/api/oxana/status', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const body = await readJson(response)
+  const reminders = body.reminders as Record<string, unknown>
+  assert.equal(response.status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(typeof reminders.enabled, 'boolean')
+  assert.equal(typeof reminders.running, 'boolean')
+  assert.ok(reminders.last_tick_at === null || typeof reminders.last_tick_at === 'string')
+  assert.ok(
+    reminders.last_tick_success === null ||
+      typeof reminders.last_tick_success === 'boolean',
+  )
+  assert.ok(
+    reminders.last_tick_error_code === null ||
+      typeof reminders.last_tick_error_code === 'string',
+  )
+
+  const publicHealth = await readJson(await app.request('/api/health'))
+  assert.equal('reminders' in publicHealth, false)
+
+  const unauth = await app.request('/api/oxana/status')
+  assert.equal(unauth.status, 401)
 })
 
 test('CA path ./certs/root.crt resolves from server root, not cwd', () => {
