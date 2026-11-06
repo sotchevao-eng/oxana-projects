@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import dns from 'node:dns'
 import net from 'node:net'
+import tls from 'node:tls'
 import pg from 'pg'
 import { resolveCaCertPath } from '../db.js'
 import { OxanaDbUnavailableError } from './errors.js'
@@ -130,10 +131,24 @@ export function resolveOxanaSocketTarget(
   }
 }
 
+export function createOxanaCheckServerIdentity(tlsServername: string) {
+  if (!tlsServername || net.isIP(tlsServername) !== 0) {
+    throw new OxanaDbUnavailableError()
+  }
+  return (_hostname: string, cert: tls.PeerCertificate) =>
+    tls.checkServerIdentity(tlsServername, cert)
+}
+
 export function buildOxanaTlsOptions(
   tlsServername: string,
   ca: string,
-): { ca: string; rejectUnauthorized: true; servername: string } {
+): {
+  ca: string
+  rejectUnauthorized: true
+  servername: string
+  host: string
+  checkServerIdentity: ReturnType<typeof createOxanaCheckServerIdentity>
+} {
   if (!tlsServername || net.isIP(tlsServername) !== 0 || !ca.includes('BEGIN CERTIFICATE')) {
     throw new OxanaDbUnavailableError()
   }
@@ -141,6 +156,9 @@ export function buildOxanaTlsOptions(
     ca,
     rejectUnauthorized: true,
     servername: tlsServername,
+    // Node uses host for identity when TLS wraps an already-connected socket.
+    host: tlsServername,
+    checkServerIdentity: createOxanaCheckServerIdentity(tlsServername),
   }
 }
 

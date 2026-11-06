@@ -81,7 +81,30 @@ function connectTcp(hostname, port) {
   })
 }
 
-function probeTls(socket, hostname, ca) {
+function certNameFlags(cert, urlHost, connectIp) {
+  const alt = String(cert?.subjectaltname ?? '')
+  const dnsNames = alt
+    .split(', ')
+    .filter((item) => item.startsWith('DNS:'))
+    .map((item) => item.slice(4).replace(/[.]$/, '').toLowerCase())
+  const ips = alt
+    .split(', ')
+    .filter((item) => item.startsWith('IP Address:'))
+    .map((item) => item.slice(11))
+  const cn = cert?.subject?.CN
+  const cnList = (Array.isArray(cn) ? cn : cn ? [cn] : []).map((item) =>
+    String(item).replace(/[.]$/, '').toLowerCase(),
+  )
+  const host = urlHost.replace(/[.]$/, '').toLowerCase()
+  return {
+    cert_dns_count: dnsNames.length,
+    cert_ip_count: ips.length,
+    url_host_in_cert_dns: dnsNames.includes(host) || cnList.includes(host),
+    connect_ip_in_cert_ips: ips.includes(connectIp),
+  }
+}
+
+function probeTls(socket, hostname, connectIp, ca) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.destroy()
@@ -99,18 +122,43 @@ function probeTls(socket, hostname, ca) {
         reject(Object.assign(new Error('ssl_refused'), { code: 'PG_SSL_REFUSED' }))
         return
       }
-      const options = { socket, ca, rejectUnauthorized: true }
-      if (!net.isIP(hostname)) options.servername = hostname
+      const options = {
+        socket,
+        ca,
+        rejectUnauthorized: true,
+        servername: hostname,
+        host: hostname,
+        checkServerIdentity: (_checked, cert) => tls.checkServerIdentity(hostname, cert),
+      }
       const secure = tls.connect(options)
       secure.once('error', (error) => {
         clearTimeout(timer)
-        reject(error)
+        const cert = error && error.cert
+        reject(
+          Object.assign(error, {
+            identity: {
+              checked_name_is_ip: net.isIP(error.host ?? '') !== 0,
+              checked_name_is_url_host: String(error.host ?? '').toLowerCase() === hostname,
+              checked_name_is_connect_ip: String(error.host ?? '') === connectIp,
+              ...(cert ? certNameFlags(cert, hostname, connectIp) : {}),
+            },
+          }),
+        )
       })
       secure.once('secureConnect', () => {
         clearTimeout(timer)
+        const cert = secure.getPeerCertificate()
         const authorized = secure.authorized === true
+        const identityMatch = tls.checkServerIdentity(hostname, cert)
         secure.end()
-        resolve({ authorized })
+        resolve({
+          authorized,
+          authorization_error: secure.authorizationError
+            ? String(secure.authorizationError)
+            : null,
+          identity_matches_url_host: identityMatch === undefined,
+          ...certNameFlags(cert, hostname, connectIp),
+        })
       })
     })
   })
@@ -125,8 +173,8 @@ if (!raw) {
 let inspected
 try {
   inspected = inspectUrl(raw)
-} catch (error) {
-  fail(error instanceof Error ? error.message : 'url_invalid')
+} catch {
+  fail('url_invalid')
   process.exit()
 }
 
@@ -181,14 +229,21 @@ try {
 
 try {
   const socket = await connectTcp(tcpHost, inspected.port)
-  const tlsResult = await probeTls(socket, inspected.hostname, ca)
+  const tlsResult = await probeTls(socket, inspected.hostname, tcpHost, ca)
   log({
-    ok: tlsResult.authorized,
+    ok: tlsResult.authorized && tlsResult.identity_matches_url_host,
     step: 'tls',
     reject_unauthorized: true,
+    ssl_negotiation: 'postgres_sslrequest',
     authorized: tlsResult.authorized,
+    identity_matches_url_host: tlsResult.identity_matches_url_host,
+    cert_dns_count: tlsResult.cert_dns_count,
+    cert_ip_count: tlsResult.cert_ip_count,
+    url_host_in_cert_dns: tlsResult.url_host_in_cert_dns,
+    connect_ip_in_cert_ips: tlsResult.connect_ip_in_cert_ips,
+    authorization_error: tlsResult.authorization_error,
   })
-  if (!tlsResult.authorized) {
+  if (!tlsResult.authorized || !tlsResult.identity_matches_url_host) {
     fail('tls_unauthorized')
     process.exit()
   }
@@ -196,6 +251,7 @@ try {
   fail('tls_failed', {
     error_name: error instanceof Error ? error.name : 'Error',
     error_code: error && error.code != null ? String(error.code) : undefined,
+    identity: error && error.identity,
   })
   process.exit()
 }
@@ -204,7 +260,14 @@ const tcpUrl = new URL(inspected.connectionString)
 tcpUrl.hostname = tcpHost
 const pool = new pg.Pool({
   connectionString: tcpUrl.toString(),
-  ssl: { ca, rejectUnauthorized: true, servername: inspected.hostname },
+  ssl: {
+    ca,
+    rejectUnauthorized: true,
+    servername: inspected.hostname,
+    host: inspected.hostname,
+    checkServerIdentity: (_checked, cert) =>
+      tls.checkServerIdentity(inspected.hostname, cert),
+  },
   lookup: lookupIpv4,
   connectionTimeoutMillis: TIMEOUT_MS,
   max: 1,
