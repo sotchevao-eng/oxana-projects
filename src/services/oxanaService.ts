@@ -2,9 +2,13 @@ import type {
   OxanaApiError,
   OxanaEvent,
   OxanaNotification,
+  OxanaOverview,
+  OxanaOwnerSettings,
   OxanaProject,
+  OxanaProjectStatus,
   OxanaStatus,
   OxanaTask,
+  OxanaTaskPriority,
   OxanaTaskStatus,
 } from '../types/oxana'
 import { oxanaErrorMessage } from '../utils/oxanaErrors'
@@ -19,8 +23,9 @@ export function isOxanaApiConfigured(): boolean {
 
 interface RequestOptions {
   token: string
-  method?: 'GET' | 'POST' | 'PATCH'
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   body?: unknown
+  signal?: AbortSignal
 }
 
 async function oxanaRequest<T>(
@@ -39,6 +44,7 @@ async function oxanaRequest<T>(
         'Content-Type': 'application/json',
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
     })
 
     let payload: unknown = null
@@ -77,7 +83,13 @@ export async function fetchOxanaTasks(token: string) {
 
 export async function createOxanaTask(
   token: string,
-  input: { title: string; description?: string; dueAt?: string; projectId?: string },
+  input: {
+    title: string
+    description?: string
+    dueAt?: string
+    projectId?: string
+    priority?: OxanaTaskPriority
+  },
 ) {
   return oxanaRequest<{ ok: true; task: OxanaTask }>('/api/oxana/tasks', {
     token,
@@ -86,19 +98,35 @@ export async function createOxanaTask(
   })
 }
 
-export async function updateOxanaTaskStatus(
+export async function updateOxanaTask(
   token: string,
   taskId: string,
-  status: OxanaTaskStatus,
+  input: {
+    status?: OxanaTaskStatus
+    projectId?: string | null
+    title?: string
+    description?: string | null
+    dueAt?: string | null
+    priority?: OxanaTaskPriority
+    archivedAt?: string | null
+  },
 ) {
   return oxanaRequest<{ ok: true; task: OxanaTask }>(
     `/api/oxana/tasks/${taskId}`,
     {
       token,
       method: 'PATCH',
-      body: { status },
+      body: input,
     },
   )
+}
+
+export async function updateOxanaTaskStatus(
+  token: string,
+  taskId: string,
+  status: OxanaTaskStatus,
+) {
+  return updateOxanaTask(token, taskId, { status })
 }
 
 export async function fetchOxanaProjects(token: string) {
@@ -108,9 +136,22 @@ export async function fetchOxanaProjects(token: string) {
   )
 }
 
+export async function fetchOxanaProject(token: string, projectId: string) {
+  return oxanaRequest<{ ok: true; project: OxanaProject; tasks: OxanaTask[] }>(
+    `/api/oxana/projects/${projectId}`,
+    { token },
+  )
+}
+
 export async function createOxanaProject(
   token: string,
-  input: { title: string; description?: string },
+  input: {
+    title: string
+    description?: string
+    status?: OxanaProjectStatus
+    startsAt?: string
+    dueAt?: string
+  },
 ) {
   return oxanaRequest<{ ok: true; project: OxanaProject }>(
     '/api/oxana/projects',
@@ -128,11 +169,136 @@ export async function fetchOxanaEvents(token: string) {
   })
 }
 
-export async function fetchOxanaNotifications(token: string) {
+export async function deleteOxanaTask(token: string, taskId: string) {
+  return oxanaRequest<{ ok: true }>(`/api/oxana/tasks/${taskId}`, {
+    token,
+    method: 'DELETE',
+  })
+}
+
+export async function updateOxanaProject(
+  token: string,
+  projectId: string,
+  input: {
+    title?: string
+    description?: string | null
+    status?: OxanaProjectStatus
+    startsAt?: string | null
+    dueAt?: string | null
+  },
+) {
+  return oxanaRequest<{ ok: true; project: OxanaProject }>(
+    `/api/oxana/projects/${projectId}`,
+    {
+      token,
+      method: 'PATCH',
+      body: input,
+    },
+  )
+}
+
+export async function deleteOxanaProject(token: string, projectId: string) {
+  return oxanaRequest<{ ok: true }>(`/api/oxana/projects/${projectId}`, {
+    token,
+    method: 'DELETE',
+  })
+}
+
+export async function createOxanaEvent(
+  token: string,
+  input: {
+    title: string
+    description?: string
+    startsAt: string
+    endsAt?: string
+    remindAt?: string
+    projectId?: string
+  },
+) {
+  return oxanaRequest<{ ok: true; event: OxanaEvent }>('/api/oxana/events', {
+    token,
+    method: 'POST',
+    body: input,
+  })
+}
+
+export async function updateOxanaEvent(
+  token: string,
+  eventId: string,
+  input: {
+    title?: string
+    description?: string | null
+    startsAt?: string
+    endsAt?: string | null
+    remindAt?: string | null
+    projectId?: string | null
+  },
+) {
+  return oxanaRequest<{ ok: true; event: OxanaEvent }>(
+    `/api/oxana/events/${eventId}`,
+    {
+      token,
+      method: 'PATCH',
+      body: input,
+    },
+  )
+}
+
+export async function deleteOxanaEvent(token: string, eventId: string) {
+  return oxanaRequest<{ ok: true }>(`/api/oxana/events/${eventId}`, {
+    token,
+    method: 'DELETE',
+  })
+}
+
+export async function fetchOxanaNotifications(
+  token: string,
+  signal?: AbortSignal,
+) {
   return oxanaRequest<{ ok: true; notifications: OxanaNotification[] }>(
     '/api/oxana/notifications',
+    { token, signal },
+  )
+}
+
+export async function markOxanaNotificationRead(
+  token: string,
+  notificationId: string,
+) {
+  return oxanaRequest<{ ok: true; notification: OxanaNotification }>(
+    `/api/oxana/notifications/${notificationId}`,
+    { token, method: 'PATCH' },
+  )
+}
+
+export async function markAllOxanaNotificationsRead(token: string) {
+  return oxanaRequest<{ ok: true; updated: number }>(
+    '/api/oxana/notifications/read-all',
+    { token, method: 'POST' },
+  )
+}
+
+export async function fetchOxanaSettings(token: string) {
+  return oxanaRequest<{ ok: true; settings: OxanaOwnerSettings }>(
+    '/api/oxana/settings',
     { token },
   )
+}
+
+export async function updateOxanaSettings(
+  token: string,
+  input: Partial<OxanaOwnerSettings>,
+) {
+  return oxanaRequest<{ ok: true; settings: OxanaOwnerSettings }>(
+    '/api/oxana/settings',
+    { token, method: 'PATCH', body: input },
+  )
+}
+
+export async function fetchOxanaOverview(token: string) {
+  return oxanaRequest<{ ok: true } & OxanaOverview>('/api/oxana/overview', {
+    token,
+  })
 }
 
 export async function sendOxanaChat(token: string, message: string) {
