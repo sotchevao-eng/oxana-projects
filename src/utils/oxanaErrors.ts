@@ -18,6 +18,9 @@ const MESSAGES: Record<string, string> = {
   invalid_due_at: 'Некорректная дата.',
   message_required: 'Введите сообщение.',
   ai_not_configured: 'ИИ ОКСИ ещё не подключён. Ответ модели не создан.',
+  ai_auth_failed: 'GigaChat отклонил авторизацию. Ответ модели не создан.',
+  ai_unavailable: 'Сервис GigaChat недоступен. Ответ модели не создан.',
+  ai_rate_limited: 'Превышен лимит GigaChat. Ответ модели не создан.',
   api_not_configured: 'Адрес российского API ОКСИ не задан.',
   server_error: 'Сервер ОКСИ вернул ошибку.',
 }

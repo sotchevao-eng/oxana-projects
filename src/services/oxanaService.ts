@@ -302,9 +302,12 @@ export async function fetchOxanaOverview(token: string) {
 }
 
 export async function sendOxanaChat(token: string, message: string) {
-  return oxanaRequest<{ ok: false; error: string }>('/api/oxana/chat', {
-    token,
-    method: 'POST',
-    body: { message },
-  })
+  return oxanaRequest<{ ok: true; reply: string; provider: string }>(
+    '/api/oxana/chat',
+    {
+      token,
+      method: 'POST',
+      body: { message },
+    },
+  )
 }

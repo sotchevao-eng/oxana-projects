@@ -176,25 +176,53 @@ function ChatPanel({ token }: { token: string }) {
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [turns, setTurns] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>(
+    [],
+  )
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!message.trim() || sending) {
+    const text = message.trim()
+    if (!text || sending) {
       return
     }
     setSending(true)
     setNotice(null)
-    const result = await sendOxanaChat(token, message.trim())
+    setMessage('')
+    setTurns((current) => [...current, { role: 'user', text }])
+    const result = await sendOxanaChat(token, text)
     setSending(false)
-    setNotice(result.ok ? oxanaErrorMessage('ai_not_configured') : result.error)
+    if (result.ok) {
+      setTurns((current) => [
+        ...current,
+        { role: 'assistant', text: result.data.reply },
+      ])
+      return
+    }
+    setNotice(result.error)
   }
 
   return (
     <section className="rounded-xl border border-border bg-surface p-4 sm:p-5">
       <h2 className="text-sm font-semibold text-ink">Чат</h2>
       <p className="mt-1 text-sm text-muted">
-        Контракт API готов. Ответ модели не имитируется.
+        Ответ приходит из GigaChat. При ошибке текст модели не подставляется.
       </p>
+      {turns.length ? (
+        <ul className="mt-4 space-y-2">
+          {turns.map((turn, index) => (
+            <li
+              key={`${turn.role}-${index}`}
+              className="rounded-2xl border border-border bg-soft px-4 py-3 text-sm text-ink"
+            >
+              <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+                {turn.role === 'user' ? 'Вы' : 'ОКСИ'}
+              </p>
+              <p className="mt-1 whitespace-pre-wrap">{turn.text}</p>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <form className="mt-4 space-y-3" onSubmit={(event) => void handleSubmit(event)}>
         <textarea
           className={`${OXANA_FIELD_CLASS} min-h-28 resize-y`}
