@@ -4,11 +4,9 @@ import { DataStatus } from '../../../components/DataStatus'
 import { useToast } from '../../../components/ToastProvider'
 import { useTheme } from '../../../hooks/useTheme'
 import {
-  fetchOxanaGigachatModels,
   fetchOxanaSettings,
   fetchOxanaStatus,
   updateOxanaSettings,
-  type OxanaGigachatModelsDiag,
 } from '../../../services/oxanaService'
 import type { OxanaOwnerSettings, OxanaStatus } from '../../../types/oxana'
 import { OXANA_TIMEZONES } from '../../../utils/oxanaTime'
@@ -32,10 +30,6 @@ export function OxanaSettingsPanel({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [checkingModels, setCheckingModels] = useState(false)
-  const [modelsDiag, setModelsDiag] = useState<OxanaGigachatModelsDiag | null>(
-    null,
-  )
 
   const reload = useCallback(async () => {
     if (authLoading) return
@@ -84,16 +78,6 @@ export function OxanaSettingsPanel({
 
   const patch = (partial: Partial<OxanaOwnerSettings>) => {
     setSettings((current) => (current ? { ...current, ...partial } : current))
-  }
-
-  const handleCheckModels = async () => {
-    if (!token || checkingModels) {
-      return
-    }
-    setCheckingModels(true)
-    const result = await fetchOxanaGigachatModels(token)
-    setModelsDiag(result)
-    setCheckingModels(false)
   }
 
   return (
@@ -231,27 +215,6 @@ export function OxanaSettingsPanel({
         </form>
       ) : null}
 
-      <div className="space-y-3 rounded-lg border border-dashed border-border px-3 py-3">
-        <div>
-          <h3 className="text-sm font-semibold text-ink">
-            Проверить модели GigaChat
-          </h3>
-          <p className="mt-1 text-xs text-muted">
-            Временная диагностика. Показывает только статус и идентификаторы
-            моделей. Ответ не сохраняется.
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={checkingModels || !token}
-          onClick={() => void handleCheckModels()}
-        >
-          {checkingModels ? 'Проверка...' : 'Проверить модели GigaChat'}
-        </Button>
-        {modelsDiag ? <GigachatModelsDiagResult result={modelsDiag} /> : null}
-      </div>
-
       {status ? (
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <StatusCard title="Контур" value={status.workspace.name} />
@@ -308,37 +271,6 @@ function StatusCard({ title, value }: { title: string; value: string }) {
     <div className="rounded-lg border border-border px-3 py-3">
       <dt className="text-xs text-muted">{title}</dt>
       <dd className="mt-1 text-ink">{value}</dd>
-    </div>
-  )
-}
-
-function GigachatModelsDiagResult({
-  result,
-}: {
-  result: OxanaGigachatModelsDiag
-}) {
-  const statusLabel =
-    result.status === null ? 'сеть' : String(result.status)
-  const modelsLabel =
-    result.models.length > 0 ? result.models.join(', ') : 'нет'
-  const hint =
-    result.status === null
-      ? 'Сеть недоступна. Повторите проверку.'
-      : result.status === 401
-        ? 'Нужно войти в админку заново.'
-        : result.status === 403
-          ? 'Для ОКСИ нет права доступа.'
-          : result.status === 404
-            ? 'Диагностика моделей сейчас недоступна.'
-            : result.status >= 500
-              ? 'Сервис GigaChat недоступен.'
-              : null
-
-  return (
-    <div className="space-y-1 text-sm text-ink" role="status">
-      <p>Статус: {statusLabel}</p>
-      <p>Модели: {modelsLabel}</p>
-      {hint ? <p className="text-xs text-muted">{hint}</p> : null}
     </div>
   )
 }

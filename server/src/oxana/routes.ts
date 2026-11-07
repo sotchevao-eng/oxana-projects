@@ -2,7 +2,6 @@ import { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { oxanaAiProvider, type OxanaAiProvider } from './aiAdapter.js'
 import { createRequireOxanaOwner } from './auth.js'
-import { isGigachatDiagEnabled } from './gigachatClient.js'
 import { getOxanaReminderSchedulerStatus } from './reminderScheduler.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from './tokenVerifier.js'
 import {
@@ -451,19 +450,6 @@ export function createOxanaRouter(
       )
       const updated = await repo.markAllNotificationsRead(workspaceId, userId)
       return c.json({ ok: true, updated })
-    } catch (error) {
-      const mapped = jsonError(error)
-      return c.json(mapped.body, mapped.status)
-    }
-  })
-
-  app.get('/ai/models', async (c) => {
-    if (!isGigachatDiagEnabled()) {
-      return c.json({ ok: false, error: 'oxana_not_found' }, 404)
-    }
-    try {
-      const models = await ai.listModels()
-      return c.json({ ok: true, models })
     } catch (error) {
       const mapped = jsonError(error)
       return c.json(mapped.body, mapped.status)

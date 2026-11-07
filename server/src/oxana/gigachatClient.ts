@@ -15,7 +15,6 @@ import {
 export const GIGACHAT_OAUTH_URL =
   'https://ngw.devices.sberbank.ru:9443/api/v2/oauth'
 export const GIGACHAT_CHAT_URL = 'https://api.giga.chat/v1/chat/completions'
-export const GIGACHAT_MODELS_URL = 'https://api.giga.chat/v1/models'
 
 const ALLOWED_SCOPES = new Set([
   'GIGACHAT_API_PERS',
@@ -23,15 +22,13 @@ const ALLOWED_SCOPES = new Set([
   'GIGACHAT_API_CORP',
 ])
 
-const DEFAULT_MODEL = 'GigaChat'
+const DEFAULT_MODEL = 'GigaChat-2'
 const MODEL_RE = /^GigaChat(?:-[A-Za-z0-9]+)*$/
 const USER_AGENT = 'OXANA-PII-API/0.1'
 const OAUTH_TIMEOUT_MS = 15_000
 const CHAT_TIMEOUT_MS = 30_000
-const MODELS_TIMEOUT_MS = 15_000
 const TOKEN_REFRESH_SKEW_MS = 60_000
 const MAX_REPLY_CHARS = 8_000
-const MAX_MODEL_IDS = 50
 
 export const OXANA_CHAT_SYSTEM_PROMPT = [
   'Ты ОКСИ — текстовый помощник кабинета OXANA PROJECTS.',
@@ -91,12 +88,6 @@ export function isGigachatConfigured(
   return Boolean(readAuthKey(env))
 }
 
-export function isGigachatDiagEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return env.OXANA_GIGACHAT_DIAG?.trim() === '1'
-}
-
 export function resolveGigachatScope(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
@@ -147,10 +138,7 @@ export function gigachatTlsOptions(
   }
 }
 
-function mapHttpError(
-  status: number,
-  kind: 'oauth' | 'chat' | 'models',
-): never {
+function mapHttpError(status: number, kind: 'oauth' | 'chat'): never {
   if (status === 401 || status === 403) {
     throw new OxanaAiAuthError()
   }
@@ -188,37 +176,6 @@ function parseJson(text: string): Record<string, unknown> | null {
   } catch {
     return null
   }
-}
-
-function parseModelIds(text: string): string[] {
-  const payload = parseJson(text)
-  const data = Array.isArray(payload?.data) ? payload.data : null
-  if (!data) {
-    logGigachat({
-      event: 'oxana_gigachat',
-      ok: false,
-      stage: 'models',
-      error_code: 'ai_models_http',
-    })
-    throw new OxanaAiUnavailableError()
-  }
-  const ids: string[] = []
-  const seen = new Set<string>()
-  for (const item of data) {
-    if (!item || typeof item !== 'object') {
-      continue
-    }
-    const id = String((item as { id?: unknown }).id ?? '').trim()
-    if (!id || seen.has(id)) {
-      continue
-    }
-    seen.add(id)
-    ids.push(id)
-    if (ids.length >= MAX_MODEL_IDS) {
-      break
-    }
-  }
-  return ids
 }
 
 export async function defaultGigachatTransport(
@@ -278,51 +235,6 @@ export class GigachatClient {
 
   isConfigured(): boolean {
     return isGigachatConfigured(this.env)
-  }
-
-  async listModels(): Promise<string[]> {
-    const authKey = readAuthKey(this.env)
-    if (!authKey) {
-      throw new OxanaAiNotConfiguredError()
-    }
-    const token = await this.getAccessToken(authKey)
-    let response: GigachatTransportResponse
-    try {
-      response = await this.transport({
-        url: GIGACHAT_MODELS_URL,
-        method: 'GET',
-        timeoutMs: MODELS_TIMEOUT_MS,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-          'User-Agent': USER_AGENT,
-        },
-      })
-    } catch (error) {
-      logGigachat({
-        event: 'oxana_gigachat',
-        ok: false,
-        stage: 'models',
-        error_code: safeErrorCode(error) ?? 'ai_unavailable',
-        error_name: safeErrorName(error),
-      })
-      throw new OxanaAiUnavailableError()
-    }
-    if (response.status === 401 || response.status === 403) {
-      this.cached = null
-      mapHttpError(response.status, 'models')
-    }
-    if (response.status !== 200) {
-      mapHttpError(response.status, 'models')
-    }
-    const ids = parseModelIds(response.text)
-    logGigachat({
-      event: 'oxana_gigachat',
-      ok: true,
-      stage: 'models',
-      count: ids.length,
-    })
-    return ids
   }
 
   async chat(message: string): Promise<string> {
