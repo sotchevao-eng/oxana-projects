@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { requireAdmin } from './middleware/auth.js'
 import { createPii, getPii, patchPii } from './routes/adminPii.js'
 import { savePublicBriefPii } from './routes/publicBriefPii.js'
+import { oxanaAiProvider, type OxanaAiProvider } from './oxana/aiAdapter.js'
 import { createOxanaRouter } from './oxana/routes.js'
 import { pgOxanaRepo } from './oxana/pgRepo.js'
 import type { TokenVerifier } from './oxana/tokenVerifier.js'
@@ -11,6 +12,7 @@ import type { OxanaRepository } from './oxana/types.js'
 export interface CreateAppOptions {
   oxanaRepo?: OxanaRepository
   oxanaTokenVerifier?: TokenVerifier
+  oxanaAiProvider?: OxanaAiProvider
 }
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -49,6 +51,7 @@ export function createApp(options: CreateAppOptions = {}) {
     createOxanaRouter(
       options.oxanaRepo ?? pgOxanaRepo,
       options.oxanaTokenVerifier,
+      options.oxanaAiProvider ?? oxanaAiProvider,
     ),
   )
 

@@ -1,11 +1,14 @@
 import { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { oxanaAiProvider } from './aiAdapter.js'
+import { oxanaAiProvider, type OxanaAiProvider } from './aiAdapter.js'
 import { createRequireOxanaOwner } from './auth.js'
 import { getOxanaReminderSchedulerStatus } from './reminderScheduler.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from './tokenVerifier.js'
 import {
+  OxanaAiAuthError,
   OxanaAiNotConfiguredError,
+  OxanaAiRateLimitError,
+  OxanaAiUnavailableError,
   OxanaDbUnavailableError,
   OxanaNotFoundError,
 } from './errors.js'
@@ -50,8 +53,41 @@ function jsonError(error: unknown): {
       body: {
         ok: false,
         error: error.code,
-        provider: oxanaAiProvider.id,
+        provider: 'gigachat',
         message: 'ИИ ОКСИ ещё не подключён. Ответ модели не создан.',
+      },
+    }
+  }
+  if (error instanceof OxanaAiAuthError) {
+    return {
+      status: 502,
+      body: {
+        ok: false,
+        error: error.code,
+        provider: 'gigachat',
+        message: 'GigaChat отклонил авторизацию. Ответ модели не создан.',
+      },
+    }
+  }
+  if (error instanceof OxanaAiRateLimitError) {
+    return {
+      status: 429,
+      body: {
+        ok: false,
+        error: error.code,
+        provider: 'gigachat',
+        message: 'Превышен лимит GigaChat. Ответ модели не создан.',
+      },
+    }
+  }
+  if (error instanceof OxanaAiUnavailableError) {
+    return {
+      status: 503,
+      body: {
+        ok: false,
+        error: error.code,
+        provider: 'gigachat',
+        message: 'Сервис GigaChat недоступен. Ответ модели не создан.',
       },
     }
   }
@@ -66,6 +102,7 @@ async function resolveWorkspace(repo: OxanaRepository, userId: string) {
 export function createOxanaRouter(
   repo: OxanaRepository,
   verifier: TokenVerifier = createConfiguredTokenVerifier(),
+  ai: OxanaAiProvider = oxanaAiProvider,
 ) {
   const app = new Hono<OxanaEnv>()
 
@@ -89,9 +126,9 @@ export function createOxanaRouter(
           ready: true,
         },
         ai: {
-          provider: oxanaAiProvider.id,
-          configured: oxanaAiProvider.isConfigured(),
-          ready: false,
+          provider: ai.id,
+          configured: ai.isConfigured(),
+          ready: ai.isConfigured(),
         },
         channels: {
           telegram: false,
@@ -433,12 +470,13 @@ export function createOxanaRouter(
     }
 
     try {
-      const { userId, workspaceId } = await resolveWorkspace(
-        repo,
-        c.get('userId'),
-      )
-      await oxanaAiProvider.chat({ workspaceId, userId, message })
-      return c.json({ ok: false, error: 'ai_not_configured' }, 503)
+      await resolveWorkspace(repo, c.get('userId'))
+      const result = await ai.chat({ message })
+      return c.json({
+        ok: true,
+        provider: ai.id,
+        reply: result.reply,
+      })
     } catch (error) {
       const mapped = jsonError(error)
       return c.json(mapped.body, mapped.status)

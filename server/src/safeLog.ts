@@ -1,4 +1,4 @@
-const SAFE_CODE_RE = /^(E[A-Z]+|[0-9A-Z]{5}|oxana_[a-z_]+)$/
+const SAFE_CODE_RE = /^(E[A-Z]+|[0-9A-Z]{5}|oxana_[a-z_]+|ai_[a-z_]+)$/
 
 export function safeErrorCode(error: unknown): string | undefined {
   if (!error || typeof error !== 'object' || !('code' in error)) {

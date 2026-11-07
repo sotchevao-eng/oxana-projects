@@ -1,33 +1,41 @@
 import { OxanaAiNotConfiguredError } from './errors.js'
+import { GigachatClient, type GigachatTransport } from './gigachatClient.js'
 
 export interface OxanaAiChatRequest {
-  workspaceId: string
-  userId: string
   message: string
+}
+
+export interface OxanaAiChatResult {
+  reply: string
 }
 
 export interface OxanaAiProvider {
   id: 'gigachat'
   isConfigured(): boolean
-  chat(request: OxanaAiChatRequest): Promise<never>
+  chat(request: OxanaAiChatRequest): Promise<OxanaAiChatResult>
 }
 
-/**
- * Russian AI adapter contract. This stage does not call a live model.
- * Do not treat a missing provider as a successful assistant reply.
- */
 export class GigaChatAdapter implements OxanaAiProvider {
   readonly id = 'gigachat' as const
+  private readonly client: GigachatClient
 
-  isConfigured(): boolean {
-    return Boolean(
-      process.env.GIGACHAT_AUTH_KEY?.trim() ||
-        process.env.GIGACHAT_CLIENT_ID?.trim(),
-    )
+  constructor(options: {
+    env?: NodeJS.ProcessEnv
+    transport?: GigachatTransport
+  } = {}) {
+    this.client = new GigachatClient(options.env ?? process.env, options.transport)
   }
 
-  async chat(_request: OxanaAiChatRequest): Promise<never> {
-    throw new OxanaAiNotConfiguredError()
+  isConfigured(): boolean {
+    return this.client.isConfigured()
+  }
+
+  async chat(request: OxanaAiChatRequest): Promise<OxanaAiChatResult> {
+    if (!this.isConfigured()) {
+      throw new OxanaAiNotConfiguredError()
+    }
+    const reply = await this.client.chat(request.message)
+    return { reply }
   }
 }
 

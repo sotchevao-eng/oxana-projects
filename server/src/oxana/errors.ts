@@ -24,3 +24,30 @@ export class OxanaAiNotConfiguredError extends Error {
     this.name = 'OxanaAiNotConfiguredError'
   }
 }
+
+export class OxanaAiAuthError extends Error {
+  readonly code = 'ai_auth_failed'
+
+  constructor(message = 'GigaChat authorization failed') {
+    super(message)
+    this.name = 'OxanaAiAuthError'
+  }
+}
+
+export class OxanaAiUnavailableError extends Error {
+  readonly code = 'ai_unavailable'
+
+  constructor(message = 'GigaChat is unavailable') {
+    super(message)
+    this.name = 'OxanaAiUnavailableError'
+  }
+}
+
+export class OxanaAiRateLimitError extends Error {
+  readonly code = 'ai_rate_limited'
+
+  constructor(message = 'GigaChat rate limit exceeded') {
+    super(message)
+    this.name = 'OxanaAiRateLimitError'
+  }
+}
