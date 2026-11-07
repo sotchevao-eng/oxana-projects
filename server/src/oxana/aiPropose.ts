@@ -84,6 +84,84 @@ export function isOxanaProposeFunction(name: string): boolean {
   return name === OXANA_PROPOSE_CREATE_TASK
 }
 
+export function looksLikeTaskCreateRequest(message: string): boolean {
+  const text = message.toLowerCase()
+  return (
+    /(создай|создать|подготовь|подготовить|набросай|добавь|заведи).{0,48}задач/i.test(
+      text,
+    ) ||
+    /задач.{0,48}(создай|подготовь|добавь)/i.test(text) ||
+    /карточк\w*\s+для\s+подтвержд/i.test(text)
+  )
+}
+
+export function extractQuotedTitle(message: string): string | null {
+  const match = message.match(/[«“„"']([^«“„"'»”\n]{2,200})[»”"']/)
+  const quoted = clampText(match?.[1], 200)
+  return quoted || null
+}
+
+export function extractDueHint(message: string): 'today' | 'tomorrow' | null {
+  const text = message.toLowerCase()
+  if (/(^|[^а-яa-z])завтра([^а-яa-z]|$)/i.test(text) || /\btomorrow\b/.test(text)) {
+    return 'tomorrow'
+  }
+  if (/(^|[^а-яa-z])сегодня([^а-яa-z]|$)/i.test(text) || /\btoday\b/.test(text)) {
+    return 'today'
+  }
+  return null
+}
+
+export function coerceDueInput(raw: unknown): unknown {
+  if (typeof raw !== 'string') {
+    return raw
+  }
+  const hint = extractDueHint(raw)
+  return hint ?? raw
+}
+
+export function resolveProposalTitle(
+  userMessage: string,
+  modelTitle: string,
+  existingTitles: readonly string[],
+): string | null {
+  const quoted = extractQuotedTitle(userMessage)
+  if (quoted) {
+    return quoted
+  }
+  const model = clampText(modelTitle, 200)
+  if (!model) {
+    return null
+  }
+  const existing = new Set(
+    existingTitles.map((item) => item.trim().toLowerCase()).filter(Boolean),
+  )
+  const copiesExisting = existing.has(model.toLowerCase())
+  const mentionedByOwner = userMessage.toLowerCase().includes(model.toLowerCase())
+  if (copiesExisting && !mentionedByOwner) {
+    return null
+  }
+  return model
+}
+
+export function resolveProposalDescription(
+  userMessage: string,
+  modelDescription: string | null,
+  title: string,
+): string | null {
+  const description = clampText(modelDescription, 4000)
+  if (!description) {
+    return null
+  }
+  if (description.toLowerCase() === title.toLowerCase()) {
+    return null
+  }
+  if (!userMessage.toLowerCase().includes(description.toLowerCase())) {
+    return null
+  }
+  return description
+}
+
 function asObject(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>
@@ -149,11 +227,25 @@ export async function executeOxanaProposeCreateTask(
     repo: OxanaRepository
     workspaceId: string
     userId: string
+    userMessage: string
     now?: Date
   },
 ): Promise<OxanaProposeResult> {
   const args = asObject(rawArgs)
-  const title = clampText(args.title, 200)
+  let existingTitles: string[] = []
+  try {
+    existingTitles = (await context.repo.listTasks(context.workspaceId)).map(
+      (item) => item.title,
+    )
+  } catch {
+    existingTitles = []
+  }
+
+  const title = resolveProposalTitle(
+    context.userMessage,
+    String(args.title ?? ''),
+    existingTitles,
+  )
   if (!title) {
     return {
       ok: false,
@@ -177,11 +269,16 @@ export async function executeOxanaProposeCreateTask(
     context.workspaceId,
     context.userId,
   )
-  const due = resolveProposedDueAt(
-    args.due ?? args.dueAt ?? args.due_at,
+  const now = context.now ?? new Date()
+  const dueHint = extractDueHint(context.userMessage)
+  let due = resolveProposedDueAt(
+    coerceDueInput(args.due ?? args.dueAt ?? args.due_at),
     settings.timezone,
-    context.now ?? new Date(),
+    now,
   )
+  if ((!due.ok || due.dueAt === null) && dueHint) {
+    due = resolveProposedDueAt(dueHint, settings.timezone, now)
+  }
   if (!due.ok) {
     return {
       ok: false,
@@ -210,8 +307,18 @@ export async function executeOxanaProposeCreateTask(
       payload: { ok: false, error: project.error, created: false },
     }
   }
+  if (
+    project.projectTitle &&
+    !context.userMessage.toLowerCase().includes(project.projectTitle.toLowerCase())
+  ) {
+    project = { ok: true, projectId: null, projectTitle: null }
+  }
 
-  const description = clampText(args.description, 4000) || null
+  const description = resolveProposalDescription(
+    context.userMessage,
+    clampText(args.description, 4000) || null,
+    title,
+  )
   const proposal: OxanaCreateTaskProposal = {
     type: 'create_task',
     title,

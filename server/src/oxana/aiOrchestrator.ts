@@ -2,6 +2,7 @@ import type { OxanaAiProvider } from './aiAdapter.js'
 import {
   executeOxanaProposeCreateTask,
   isOxanaProposeFunction,
+  looksLikeTaskCreateRequest,
   OXANA_PROPOSAL_REPLY,
   oxanaProposeFunctionDefinition,
   type OxanaCreateTaskProposal,
@@ -29,10 +30,9 @@ export async function runOxanaCabinetChat(options: {
     throw new OxanaAiNotConfiguredError()
   }
 
-  const functions = [
-    ...oxanaReadFunctionDefinitions(),
-    oxanaProposeFunctionDefinition(),
-  ]
+  const functions = looksLikeTaskCreateRequest(options.message)
+    ? [oxanaProposeFunctionDefinition()]
+    : [...oxanaReadFunctionDefinitions(), oxanaProposeFunctionDefinition()]
   const messages: GigachatChatMessage[] = [
     { role: 'system', content: OXANA_CHAT_SYSTEM_PROMPT },
     { role: 'user', content: options.message },
@@ -70,6 +70,7 @@ export async function runOxanaCabinetChat(options: {
             repo: options.repo,
             workspaceId: options.workspaceId,
             userId: options.userId,
+            userMessage: options.message,
             now: options.now,
           },
         )
