@@ -51,3 +51,12 @@ export class OxanaAiRateLimitError extends Error {
     this.name = 'OxanaAiRateLimitError'
   }
 }
+
+export class OxanaIdempotencyConflictError extends Error {
+  readonly code = 'idempotency_key_conflict'
+
+  constructor(message = 'Idempotency key already used with different content') {
+    super(message)
+    this.name = 'OxanaIdempotencyConflictError'
+  }
+}

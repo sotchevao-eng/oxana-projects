@@ -11,9 +11,11 @@ import {
   OxanaAiRateLimitError,
   OxanaAiUnavailableError,
   OxanaDbUnavailableError,
+  OxanaIdempotencyConflictError,
   OxanaNotFoundError,
 } from './errors.js'
 import {
+  clampText,
   isUuid,
   parseEventCreate,
   parseEventPatch,
@@ -47,6 +49,16 @@ function jsonError(error: unknown): {
   }
   if (error instanceof OxanaNotFoundError) {
     return { status: 404, body: { ok: false, error: error.code } }
+  }
+  if (error instanceof OxanaIdempotencyConflictError) {
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: error.code,
+        message: 'Этот ключ уже использован для другой задачи.',
+      },
+    }
   }
   if (error instanceof OxanaAiNotConfiguredError) {
     return {
@@ -98,6 +110,20 @@ function jsonError(error: unknown): {
 async function resolveWorkspace(repo: OxanaRepository, userId: string) {
   const workspace = await repo.ensureWorkspaceForUser(userId)
   return { userId, workspaceId: workspace.id, workspace }
+}
+
+function readIdempotencyKey(body: unknown): string | null | 'invalid' {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return null
+  }
+  const raw = clampText(
+    (body as Record<string, unknown>).idempotencyKey,
+    36,
+  )
+  if (!raw) {
+    return null
+  }
+  return isUuid(raw) ? raw : 'invalid'
 }
 
 export function createOxanaRouter(
@@ -155,18 +181,35 @@ export function createOxanaRouter(
   })
 
   app.post('/tasks', async (c) => {
-    const parsed = parseTaskCreate(await c.req.json().catch(() => null))
+    const raw = await c.req.json().catch(() => null)
+    const parsed = parseTaskCreate(raw)
     if (!parsed.ok) {
       return c.json({ ok: false, error: parsed.error }, 400)
+    }
+    const idempotencyKey = readIdempotencyKey(raw)
+    if (idempotencyKey === 'invalid') {
+      return c.json({ ok: false, error: 'invalid_idempotency_key' }, 400)
     }
     try {
       const { userId, workspaceId } = await resolveWorkspace(
         repo,
         c.get('userId'),
       )
-      const task = await repo.createTask(workspaceId, userId, parsed.data)
-      void repo.scheduleRemindersForTask(workspaceId, userId, task).catch(() => undefined)
-      return c.json({ ok: true, task }, 201)
+      const outcome = await repo.createTaskIdempotent(
+        workspaceId,
+        userId,
+        parsed.data,
+        idempotencyKey,
+      )
+      if (!outcome.replayed) {
+        void repo
+          .scheduleRemindersForTask(workspaceId, userId, outcome.task)
+          .catch(() => undefined)
+      }
+      return c.json(
+        { ok: true as const, task: outcome.task },
+        outcome.replayed ? 200 : 201,
+      )
     } catch (error) {
       const mapped = jsonError(error)
       return c.json(mapped.body, mapped.status)
@@ -486,6 +529,7 @@ export function createOxanaRouter(
         ok: true,
         provider: ai.id,
         reply: result.reply,
+        ...(result.proposal ? { proposal: result.proposal } : {}),
       })
     } catch (error) {
       const mapped = jsonError(error)

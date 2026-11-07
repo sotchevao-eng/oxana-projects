@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { OxanaNotFoundError } from './errors.js'
+import { OxanaIdempotencyConflictError, OxanaNotFoundError } from './errors.js'
+import {
+  hashTaskCreateInput,
+  taskCreateKeyMapId,
+} from './idempotency.js'
 import { DEFAULT_OWNER_SETTINGS, mergeSettings } from './settingsDefaults.js'
 import { startOfDay } from './time.js'
 import type {
@@ -30,6 +34,10 @@ export class MemoryOxanaRepo implements OxanaRepository {
   private readonly events: OxanaEvent[] = []
   private readonly notifications: OxanaNotification[] = []
   private readonly settings = new Map<string, OxanaOwnerSettings>()
+  private readonly taskCreateKeys = new Map<
+    string,
+    { hash: string; taskId?: string; inflight?: Promise<OxanaTask> }
+  >()
 
   async ensureWorkspaceForUser(userId: string): Promise<OxanaWorkspace> {
     if (!this.identities.has(userId)) {
@@ -144,6 +152,41 @@ export class MemoryOxanaRepo implements OxanaRepository {
     }
     this.tasks.set(task.id, task)
     return task
+  }
+
+  async createTaskIdempotent(
+    workspaceId: string,
+    userId: string,
+    input: CreateTaskInput,
+    idempotencyKey: string | null,
+  ): Promise<{ task: OxanaTask; replayed: boolean }> {
+    if (!idempotencyKey) {
+      return { task: await this.createTask(workspaceId, userId, input), replayed: false }
+    }
+
+    const mapKey = taskCreateKeyMapId(userId, idempotencyKey)
+    const hash = hashTaskCreateInput(input)
+    const existing = this.taskCreateKeys.get(mapKey)
+    if (existing) {
+      if (existing.hash !== hash) {
+        throw new OxanaIdempotencyConflictError()
+      }
+      const task = existing.taskId
+        ? await this.getTask(workspaceId, existing.taskId)
+        : await existing.inflight!
+      return { task, replayed: true }
+    }
+
+    const inflight = this.createTask(workspaceId, userId, input)
+    this.taskCreateKeys.set(mapKey, { hash, inflight })
+    try {
+      const task = await inflight
+      this.taskCreateKeys.set(mapKey, { hash, taskId: task.id })
+      return { task, replayed: false }
+    } catch (error) {
+      this.taskCreateKeys.delete(mapKey)
+      throw error
+    }
   }
 
   async updateTask(

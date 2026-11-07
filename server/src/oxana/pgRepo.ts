@@ -1,5 +1,10 @@
 import type { PoolClient } from 'pg'
-import { OxanaDbUnavailableError, OxanaNotFoundError } from './errors.js'
+import {
+  OxanaDbUnavailableError,
+  OxanaIdempotencyConflictError,
+  OxanaNotFoundError,
+} from './errors.js'
+import { hashTaskCreateInput } from './idempotency.js'
 import { getOxanaPool, isOxanaDatabaseConfigured } from './db.js'
 import type {
   CreateEventInput,
@@ -122,10 +127,26 @@ const PROJECT_SELECT = `p.id, p.workspace_id, p.title, p.description, p.status,
              and t.due_at < now()
              and t.status in ('open', 'in_progress')) as overdue_count`
 
+function isTaskCreateKeyConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+  const code = 'code' in error ? String(error.code) : ''
+  if (code !== '23505') {
+    return false
+  }
+  const constraint = 'constraint' in error ? String(error.constraint) : ''
+  return (
+    constraint === 'oxana_task_create_keys_pkey' ||
+    constraint.includes('task_create_keys')
+  )
+}
+
 function wrapDbError(error: unknown): never {
   if (
     error instanceof OxanaDbUnavailableError ||
-    error instanceof OxanaNotFoundError
+    error instanceof OxanaNotFoundError ||
+    error instanceof OxanaIdempotencyConflictError
   ) {
     throw error
   }
@@ -231,6 +252,65 @@ export class PgOxanaRepo implements OxanaRepository {
     }
   }
 
+  private async insertTaskRow(
+    queryable: PoolClient | ReturnType<PgOxanaRepo['requirePool']>,
+    workspaceId: string,
+    userId: string,
+    input: CreateTaskInput,
+  ): Promise<string> {
+    if (input.projectId) {
+      const project = await queryable.query(
+        `select id from oxana.projects
+         where id = $1 and workspace_id = $2`,
+        [input.projectId, workspaceId],
+      )
+      if (!project.rows[0]) {
+        throw new OxanaNotFoundError()
+      }
+    }
+
+    // PostgreSQL does not expose a modifying CTE to a later SELECT on the
+    // same table in one statement. Read the row in a second query instead.
+    const result = await queryable.query<{ id: string }>(
+      `insert into oxana.tasks (
+         workspace_id, project_id, title, description, created_by, due_at, priority
+       ) values ($1, $2, $3, $4, $5, $6, $7)
+       returning id`,
+      [
+        workspaceId,
+        input.projectId,
+        input.title,
+        input.description,
+        userId,
+        input.dueAt,
+        input.priority,
+      ],
+    )
+    if (!result.rows[0]) {
+      throw new OxanaDbUnavailableError()
+    }
+    return result.rows[0].id
+  }
+
+  private async readTaskRow(
+    queryable: PoolClient | ReturnType<PgOxanaRepo['requirePool']>,
+    workspaceId: string,
+    taskId: string,
+  ): Promise<OxanaTask> {
+    const result = await queryable.query(
+      `select ${TASK_SELECT}
+       from oxana.tasks t
+       left join oxana.projects p
+         on p.id = t.project_id and p.workspace_id = t.workspace_id
+       where t.workspace_id = $1 and t.id = $2`,
+      [workspaceId, taskId],
+    )
+    if (!result.rows[0]) {
+      throw new OxanaNotFoundError()
+    }
+    return mapTask(result.rows[0] as Record<string, unknown>)
+  }
+
   async createTask(
     workspaceId: string,
     userId: string,
@@ -238,38 +318,105 @@ export class PgOxanaRepo implements OxanaRepository {
   ): Promise<OxanaTask> {
     const pool = this.requirePool()
     try {
-      if (input.projectId) {
-        const project = await pool.query(
-          `select id from oxana.projects
-           where id = $1 and workspace_id = $2`,
-          [input.projectId, workspaceId],
-        )
-        if (!project.rows[0]) {
-          throw new OxanaNotFoundError()
-        }
-      }
+      const taskId = await this.insertTaskRow(pool, workspaceId, userId, input)
+      return this.readTaskRow(pool, workspaceId, taskId)
+    } catch (error) {
+      wrapDbError(error)
+    }
+  }
 
-      // PostgreSQL does not expose a modifying CTE to a later SELECT on the
-      // same table in one statement. Read the row in a second query instead.
-      const result = await pool.query<{ id: string }>(
-        `insert into oxana.tasks (
-           workspace_id, project_id, title, description, created_by, due_at, priority
-         ) values ($1, $2, $3, $4, $5, $6, $7)
-         returning id`,
-        [
+  async createTaskIdempotent(
+    workspaceId: string,
+    userId: string,
+    input: CreateTaskInput,
+    idempotencyKey: string | null,
+  ): Promise<{ task: OxanaTask; replayed: boolean }> {
+    if (!idempotencyKey) {
+      return {
+        task: await this.createTask(workspaceId, userId, input),
+        replayed: false,
+      }
+    }
+
+    const requestHash = hashTaskCreateInput(input)
+    const pool = this.requirePool()
+    let client: PoolClient
+    try {
+      client = await pool.connect()
+    } catch {
+      throw new OxanaDbUnavailableError()
+    }
+
+    try {
+      await client.query('begin')
+      try {
+        const taskId = await this.insertTaskRow(
+          client,
           workspaceId,
-          input.projectId,
-          input.title,
-          input.description,
           userId,
-          input.dueAt,
-          input.priority,
-        ],
+          input,
+        )
+        await client.query(
+          `insert into oxana.task_create_keys (
+             user_id, idempotency_key, workspace_id, request_hash, task_id
+           ) values ($1, $2, $3, $4, $5)`,
+          [userId, idempotencyKey, workspaceId, requestHash, taskId],
+        )
+        const task = await this.readTaskRow(client, workspaceId, taskId)
+        await client.query('commit')
+        return { task, replayed: false }
+      } catch (error) {
+        try {
+          await client.query('rollback')
+        } catch {
+          // keep original error
+        }
+        if (isTaskCreateKeyConflict(error)) {
+          return this.replayTaskCreate(
+            workspaceId,
+            userId,
+            idempotencyKey,
+            requestHash,
+          )
+        }
+        wrapDbError(error)
+      }
+    } finally {
+      client.release()
+    }
+  }
+
+  private async replayTaskCreate(
+    workspaceId: string,
+    userId: string,
+    idempotencyKey: string,
+    requestHash: string,
+  ): Promise<{ task: OxanaTask; replayed: boolean }> {
+    const pool = this.requirePool()
+    try {
+      const existing = await pool.query<{
+        request_hash: string
+        task_id: string | null
+        workspace_id: string
+      }>(
+        `select request_hash, task_id, workspace_id
+         from oxana.task_create_keys
+         where user_id = $1 and idempotency_key = $2`,
+        [userId, idempotencyKey],
       )
-      if (!result.rows[0]) {
+      const row = existing.rows[0]
+      if (!row) {
         throw new OxanaDbUnavailableError()
       }
-      return this.getTask(workspaceId, result.rows[0].id)
+      if (
+        row.request_hash !== requestHash ||
+        row.workspace_id !== workspaceId ||
+        !row.task_id
+      ) {
+        throw new OxanaIdempotencyConflictError()
+      }
+      const task = await this.readTaskRow(pool, workspaceId, row.task_id)
+      return { task, replayed: true }
     } catch (error) {
       wrapDbError(error)
     }

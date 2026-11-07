@@ -164,6 +164,12 @@ export interface OxanaRepository {
     userId: string,
     input: CreateTaskInput,
   ): Promise<OxanaTask>
+  createTaskIdempotent(
+    workspaceId: string,
+    userId: string,
+    input: CreateTaskInput,
+    idempotencyKey: string | null,
+  ): Promise<{ task: OxanaTask; replayed: boolean }>
   updateTask(
     workspaceId: string,
     taskId: string,

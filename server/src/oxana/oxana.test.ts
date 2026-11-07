@@ -1076,3 +1076,187 @@ test('CA path ./certs/root.crt resolves from server root, not cwd', () => {
     process.chdir(previousCwd)
   }
 })
+
+test('idempotent task create returns the same row after a lost response', async () => {
+  class CountRepo extends MemoryOxanaRepo {
+    creates = 0
+    async createTask(
+      workspaceId: string,
+      userId: string,
+      input: Parameters<MemoryOxanaRepo['createTask']>[2],
+    ) {
+      this.creates += 1
+      return super.createTask(workspaceId, userId, input)
+    }
+  }
+  const repo = new CountRepo()
+  const app = createApp({ oxanaRepo: repo })
+  const token = await signToken(OWNER_A)
+  const key = 'b1b1b1b1-b1b1-41b1-81b1-b1b1b1b1b1b1'
+  const payload = {
+    title: 'Проверить документы поставщика',
+    priority: 'high',
+    idempotencyKey: key,
+  }
+  const first = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+  const second = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+  const firstBody = await readJson(first)
+  const secondBody = await readJson(second)
+  assert.equal(first.status, 201)
+  assert.equal(second.status, 200)
+  assert.equal(repo.creates, 1)
+  assert.equal(
+    (firstBody.task as Record<string, unknown>).id,
+    (secondBody.task as Record<string, unknown>).id,
+  )
+})
+
+test('invalid idempotency key is rejected without a write', async () => {
+  class CountRepo extends MemoryOxanaRepo {
+    creates = 0
+    async createTask(
+      workspaceId: string,
+      userId: string,
+      input: Parameters<MemoryOxanaRepo['createTask']>[2],
+    ) {
+      this.creates += 1
+      return super.createTask(workspaceId, userId, input)
+    }
+  }
+  const repo = new CountRepo()
+  const app = createApp({ oxanaRepo: repo })
+  const token = await signToken(OWNER_A)
+  const response = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: 'Не должна создаться',
+      idempotencyKey: 'not-a-uuid',
+    }),
+  })
+  const body = await readJson(response)
+  assert.equal(response.status, 400)
+  assert.equal(body.error, 'invalid_idempotency_key')
+  assert.equal(repo.creates, 0)
+})
+
+test('same idempotency key with different task content is rejected', async () => {
+  class CountRepo extends MemoryOxanaRepo {
+    creates = 0
+    async createTask(
+      workspaceId: string,
+      userId: string,
+      input: Parameters<MemoryOxanaRepo['createTask']>[2],
+    ) {
+      this.creates += 1
+      return super.createTask(workspaceId, userId, input)
+    }
+  }
+  const repo = new CountRepo()
+  const app = createApp({ oxanaRepo: repo })
+  const token = await signToken(OWNER_A)
+  const key = 'c2c2c2c2-c2c2-42c2-82c2-c2c2c2c2c2c2'
+  const first = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: 'Проверить документы поставщика',
+      priority: 'high',
+      idempotencyKey: key,
+    }),
+  })
+  const second = await app.request('/api/oxana/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: 'Другая задача',
+      priority: 'low',
+      idempotencyKey: key,
+    }),
+  })
+  const firstBody = await readJson(first)
+  const secondBody = await readJson(second)
+  const listed = await app.request('/api/oxana/tasks', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const listedBody = await readJson(listed)
+  assert.equal(first.status, 201)
+  assert.equal(second.status, 409)
+  assert.equal(secondBody.error, 'idempotency_key_conflict')
+  assert.equal(repo.creates, 1)
+  assert.equal((listedBody.tasks as unknown[]).length, 1)
+  assert.equal(
+    ((listedBody.tasks as Array<Record<string, unknown>>)[0] ?? {}).id,
+    (firstBody.task as Record<string, unknown>).id,
+  )
+})
+
+test('concurrent posts with the same idempotency key create one task', async () => {
+  class CountRepo extends MemoryOxanaRepo {
+    creates = 0
+    async createTask(
+      workspaceId: string,
+      userId: string,
+      input: Parameters<MemoryOxanaRepo['createTask']>[2],
+    ) {
+      this.creates += 1
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      return super.createTask(workspaceId, userId, input)
+    }
+  }
+  const repo = new CountRepo()
+  const app = createApp({ oxanaRepo: repo })
+  const token = await signToken(OWNER_A)
+  const payload = JSON.stringify({
+    title: 'Одновременное создание',
+    priority: 'normal',
+    idempotencyKey: 'd3d3d3d3-d3d3-43d3-83d3-d3d3d3d3d3d3',
+  })
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  }
+  const [first, second] = await Promise.all([
+    app.request('/api/oxana/tasks', { method: 'POST', headers, body: payload }),
+    app.request('/api/oxana/tasks', { method: 'POST', headers, body: payload }),
+  ])
+  const firstBody = await readJson(first)
+  const secondBody = await readJson(second)
+  const listed = await readJson(
+    await app.request('/api/oxana/tasks', {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+  )
+  assert.equal(repo.creates, 1)
+  assert.equal((listed.tasks as unknown[]).length, 1)
+  const ids = new Set([
+    (firstBody.task as Record<string, unknown>).id,
+    (secondBody.task as Record<string, unknown>).id,
+  ])
+  assert.equal(ids.size, 1)
+  assert.equal([201, 200].includes(first.status), true)
+  assert.equal([201, 200].includes(second.status), true)
+})
