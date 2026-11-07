@@ -106,7 +106,7 @@ test('chat stays unconfigured and does not invent a reply', async () => {
   assert.equal(body.reply, undefined)
 })
 
-test('successful GigaChat reply is returned without tools or owner data', async () => {
+test('successful GigaChat reply is returned without owner identity or OpenAI tools', async () => {
   isolateEnv()
   const { calls, transport } = mockTransport((request) => {
     if (request.url === GIGACHAT_OAUTH_URL) {
@@ -121,7 +121,12 @@ test('successful GigaChat reply is returned without tools or owner data', async 
     return {
       status: 200,
       text: JSON.stringify({
-        choices: [{ message: { role: 'assistant', content: 'Здравствуйте, я ОКСИ.' } }],
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: { role: 'assistant', content: 'Здравствуйте, я ОКСИ.' },
+          },
+        ],
       }),
     }
   })
@@ -146,15 +151,21 @@ test('successful GigaChat reply is returned without tools or owner data', async 
   const payload = JSON.parse(chat?.body ?? '{}') as {
     messages: Array<{ role: string; content: string }>
     model: string
+    functions?: unknown[]
+    function_call?: string
+    tools?: unknown
   }
   assert.equal(payload.model, 'GigaChat-2')
   assert.equal(payload.messages[0]?.role, 'system')
   assert.equal(payload.messages[0]?.content, OXANA_CHAT_SYSTEM_PROMPT)
   assert.equal(payload.messages[1]?.role, 'user')
   assert.equal(payload.messages[1]?.content, 'Как дела?')
+  assert.equal(payload.function_call, 'auto')
+  assert.equal(Array.isArray(payload.functions), true)
+  assert.equal(payload.tools, undefined)
   assert.equal(JSON.stringify(payload).includes(OWNER_A), false)
-  assert.equal(JSON.stringify(payload).includes('task'), false)
-  assert.equal(JSON.stringify(payload).includes('project'), false)
+  assert.equal(JSON.stringify(payload).includes('createdBy'), false)
+  assert.equal(JSON.stringify(payload).includes('client_pii'), false)
 })
 
 test('GigaChat 401 becomes ai_auth_failed without a reply', async () => {
@@ -200,6 +211,41 @@ test('GigaChat 429 becomes ai_rate_limited without a reply', async () => {
   assert.equal(response.status, 429)
   assert.equal(body.error, 'ai_rate_limited')
   assert.equal(body.reply, undefined)
+})
+
+test('GigaChat 500 does not leak provider internals to the owner', async () => {
+  isolateEnv()
+  const { transport } = mockTransport((request) => {
+    if (request.url === GIGACHAT_OAUTH_URL) {
+      return {
+        status: 200,
+        text: JSON.stringify({
+          access_token: 'access-token',
+          expires_at: Date.now() + 30 * 60_000,
+        }),
+      }
+    }
+    return {
+      status: 500,
+      text: JSON.stringify({
+        status: 500,
+        message: 'connection to host 10.1.2.3 failed password=supersecret',
+      }),
+    }
+  })
+  const app = createApp({
+    oxanaRepo: new MemoryOxanaRepo(),
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const response = await postChat(app)
+  const body = await readJson(response)
+  const dumped = JSON.stringify(body)
+  assert.equal(response.status, 503)
+  assert.equal(body.error, 'ai_unavailable')
+  assert.equal(body.reply, undefined)
+  assert.equal(dumped.includes('10.1.2.3'), false)
+  assert.equal(dumped.includes('supersecret'), false)
+  assert.equal(dumped.includes('password='), false)
 })
 
 test('GigaChat timeout becomes ai_unavailable without a reply', async () => {

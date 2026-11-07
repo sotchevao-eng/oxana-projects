@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { oxanaAiProvider, type OxanaAiProvider } from './aiAdapter.js'
+import { runOxanaCabinetChat } from './aiOrchestrator.js'
 import { createRequireOxanaOwner } from './auth.js'
 import { getOxanaReminderSchedulerStatus } from './reminderScheduler.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from './tokenVerifier.js'
@@ -470,8 +471,17 @@ export function createOxanaRouter(
     }
 
     try {
-      await resolveWorkspace(repo, c.get('userId'))
-      const result = await ai.chat({ message })
+      const { userId, workspaceId } = await resolveWorkspace(
+        repo,
+        c.get('userId'),
+      )
+      const result = await runOxanaCabinetChat({
+        ai,
+        repo,
+        userId,
+        workspaceId,
+        message,
+      })
       return c.json({
         ok: true,
         provider: ai.id,

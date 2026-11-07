@@ -162,6 +162,7 @@ export class PgOxanaRepo implements OxanaRepository {
          from oxana.workspace_members m
          join oxana.workspaces w on w.id = m.workspace_id
          where m.user_id = $1
+           and w.kind = 'owner'
          order by w.created_at asc
          limit 1`,
         [userId],

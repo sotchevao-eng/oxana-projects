@@ -9,6 +9,7 @@ import { createApp } from '../app.js'
 import { inspectOxanaDatabaseUrl, shouldDisableOxanaSsl } from './db.js'
 import { MemoryOxanaRepo } from './memoryRepo.js'
 import { createSupabaseTokenVerifier } from './tokenVerifier.js'
+import type { OxanaEvent, OxanaTask } from './types.js'
 
 const TEST_SECRET = 'oxana-test-jwt-secret-please-change'
 const OWNER_A = '11111111-1111-4111-8111-111111111111'
@@ -88,6 +89,187 @@ test('fails closed when allowlist is empty', async () => {
   const body = await readJson(response)
   assert.equal(response.status, 503)
   assert.equal(body.error, 'oxana_allowlist_missing')
+})
+
+test('prefers owner workspace when the user also has a client workspace', async () => {
+  const repo = new MemoryOxanaRepo()
+  const ownerWorkspace = await repo.ensureWorkspaceForUser(OWNER_A)
+  const clientWorkspace = {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    slug: 'client-acme',
+    name: 'Клиент',
+    kind: 'client' as const,
+  }
+  repo.assignUserToWorkspace(OWNER_A, clientWorkspace)
+  await repo.createTask(clientWorkspace.id, OWNER_A, {
+    title: 'Клиентская задача',
+    description: null,
+    projectId: null,
+    dueAt: null,
+    priority: 'normal',
+  })
+  await repo.createTask(ownerWorkspace.id, OWNER_A, {
+    title: 'Личная задача',
+    description: null,
+    projectId: null,
+    dueAt: null,
+    priority: 'normal',
+  })
+
+  const resolved = await repo.ensureWorkspaceForUser(OWNER_A)
+  assert.equal(resolved.kind, 'owner')
+  assert.equal(resolved.id, ownerWorkspace.id)
+
+  const app = createApp({ oxanaRepo: repo })
+  const token = await signToken(OWNER_A)
+  const listed = await readJson(
+    await app.request('/api/oxana/tasks', {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+  )
+  const titles = ((listed.tasks as Array<{ title: string }>) ?? []).map(
+    (task) => task.title,
+  )
+  assert.deepEqual(titles, ['Личная задача'])
+})
+
+test('owner APIs and reminders keep the existing owner workspace', async () => {
+  class ReminderSpyRepo extends MemoryOxanaRepo {
+    taskReminderWorkspaces: string[] = []
+    eventReminderWorkspaces: string[] = []
+
+    async scheduleRemindersForTask(
+      workspaceId: string,
+      _userId: string,
+      _task: OxanaTask,
+    ): Promise<void> {
+      this.taskReminderWorkspaces.push(workspaceId)
+    }
+
+    async scheduleRemindersForEvent(
+      workspaceId: string,
+      _userId: string,
+      _event: OxanaEvent,
+    ): Promise<void> {
+      this.eventReminderWorkspaces.push(workspaceId)
+    }
+  }
+
+  const repo = new ReminderSpyRepo()
+  const ownerWorkspace = await repo.ensureWorkspaceForUser(OWNER_A)
+  await repo.createTask(ownerWorkspace.id, OWNER_A, {
+    title: 'Личная задача',
+    description: 'не должна пропасть',
+    projectId: null,
+    dueAt: null,
+    priority: 'normal',
+  })
+  await repo.createProject(ownerWorkspace.id, OWNER_A, {
+    title: 'проект 1',
+    description: null,
+    status: 'active',
+    startsAt: null,
+    dueAt: null,
+  })
+  await repo.createEvent(ownerWorkspace.id, OWNER_A, {
+    title: 'Встреча ОКСИ',
+    description: null,
+    startsAt: new Date(Date.now() + 3_600_000).toISOString(),
+    endsAt: null,
+    remindAt: null,
+    projectId: null,
+  })
+  repo.assignUserToWorkspace(OWNER_A, {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    slug: 'client-acme',
+    name: 'Клиент',
+    kind: 'client',
+  })
+
+  const again = await repo.ensureWorkspaceForUser(OWNER_A)
+  assert.equal(again.id, ownerWorkspace.id)
+  assert.equal(again.kind, 'owner')
+
+  const app = createApp({ oxanaRepo: repo })
+  const token = await signToken(OWNER_A)
+  const headers = { Authorization: `Bearer ${token}` }
+  const writeHeaders = {
+    ...headers,
+    'Content-Type': 'application/json',
+  }
+
+  const status = await readJson(await app.request('/api/oxana/status', { headers }))
+  assert.equal((status.workspace as Record<string, unknown>).id, ownerWorkspace.id)
+  assert.equal((status.workspace as Record<string, unknown>).kind, 'owner')
+
+  const tasks = await readJson(await app.request('/api/oxana/tasks', { headers }))
+  assert.deepEqual(
+    ((tasks.tasks as Array<{ title: string }>) ?? []).map((item) => item.title),
+    ['Личная задача'],
+  )
+
+  const overview = await readJson(
+    await app.request('/api/oxana/overview', { headers }),
+  )
+  assert.deepEqual(
+    ((overview.activeProjects as Array<{ title: string }>) ?? []).map(
+      (item) => item.title,
+    ),
+    ['проект 1'],
+  )
+  assert.deepEqual(
+    ((overview.upcomingEvents as Array<{ title: string }>) ?? []).map(
+      (item) => item.title,
+    ),
+    ['Встреча ОКСИ'],
+  )
+
+  const projects = await readJson(
+    await app.request('/api/oxana/projects', { headers }),
+  )
+  assert.deepEqual(
+    ((projects.projects as Array<{ title: string }>) ?? []).map((item) => item.title),
+    ['проект 1'],
+  )
+
+  const events = await readJson(await app.request('/api/oxana/events', { headers }))
+  assert.deepEqual(
+    ((events.events as Array<{ title: string }>) ?? []).map((item) => item.title),
+    ['Встреча ОКСИ'],
+  )
+
+  const settings = await readJson(
+    await app.request('/api/oxana/settings', { headers }),
+  )
+  assert.equal(settings.ok, true)
+
+  const notes = await readJson(
+    await app.request('/api/oxana/notifications', { headers }),
+  )
+  assert.equal(Array.isArray(notes.notifications), true)
+
+  const createdTask = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: writeHeaders,
+      body: JSON.stringify({ title: 'Новая личная задача' }),
+    }),
+  )
+  assert.equal(createdTask.ok, true)
+  assert.deepEqual(repo.taskReminderWorkspaces, [ownerWorkspace.id])
+
+  const createdEvent = await readJson(
+    await app.request('/api/oxana/events', {
+      method: 'POST',
+      headers: writeHeaders,
+      body: JSON.stringify({
+        title: 'Новая встреча',
+        startsAt: new Date(Date.now() + 7_200_000).toISOString(),
+      }),
+    }),
+  )
+  assert.equal(createdEvent.ok, true)
+  assert.deepEqual(repo.eventReminderWorkspaces, [ownerWorkspace.id])
 })
 
 test('creates and lists tasks for the owner workspace only', async () => {

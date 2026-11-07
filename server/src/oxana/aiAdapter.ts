@@ -1,5 +1,10 @@
 import { OxanaAiNotConfiguredError } from './errors.js'
-import { GigachatClient, type GigachatTransport } from './gigachatClient.js'
+import {
+  GigachatClient,
+  type GigachatCompletionInput,
+  type GigachatCompletionResult,
+  type GigachatTransport,
+} from './gigachatClient.js'
 
 export interface OxanaAiChatRequest {
   message: string
@@ -13,6 +18,7 @@ export interface OxanaAiProvider {
   id: 'gigachat'
   isConfigured(): boolean
   chat(request: OxanaAiChatRequest): Promise<OxanaAiChatResult>
+  complete(input: GigachatCompletionInput): Promise<GigachatCompletionResult>
 }
 
 export class GigaChatAdapter implements OxanaAiProvider {
@@ -36,6 +42,15 @@ export class GigaChatAdapter implements OxanaAiProvider {
     }
     const reply = await this.client.chat(request.message)
     return { reply }
+  }
+
+  async complete(
+    input: GigachatCompletionInput,
+  ): Promise<GigachatCompletionResult> {
+    if (!this.isConfigured()) {
+      throw new OxanaAiNotConfiguredError()
+    }
+    return this.client.complete(input)
   }
 }
 

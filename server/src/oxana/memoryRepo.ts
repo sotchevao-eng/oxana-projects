@@ -23,7 +23,8 @@ import type {
 export class MemoryOxanaRepo implements OxanaRepository {
   private readonly identities = new Map<string, string | null>()
   private readonly workspaces = new Map<string, OxanaWorkspace>()
-  private readonly memberships = new Map<string, string>()
+  private readonly memberships: Array<{ userId: string; workspaceId: string }> =
+    []
   private readonly tasks = new Map<string, OxanaTask>()
   private readonly projects = new Map<string, OxanaProject>()
   private readonly events: OxanaEvent[] = []
@@ -34,12 +35,12 @@ export class MemoryOxanaRepo implements OxanaRepository {
     if (!this.identities.has(userId)) {
       this.identities.set(userId, null)
     }
-    const existingId = this.memberships.get(userId)
-    if (existingId) {
-      const workspace = this.workspaces.get(existingId)
-      if (workspace) {
-        return workspace
-      }
+    const owner = this.memberships
+      .filter((item) => item.userId === userId)
+      .map((item) => this.workspaces.get(item.workspaceId))
+      .find((workspace) => workspace?.kind === 'owner')
+    if (owner) {
+      return owner
     }
 
     const workspace: OxanaWorkspace = {
@@ -49,14 +50,19 @@ export class MemoryOxanaRepo implements OxanaRepository {
       kind: 'owner',
     }
     this.workspaces.set(workspace.id, workspace)
-    this.memberships.set(userId, workspace.id)
+    this.memberships.push({ userId, workspaceId: workspace.id })
     return workspace
   }
 
   assignUserToWorkspace(userId: string, workspace: OxanaWorkspace): void {
     this.identities.set(userId, this.identities.get(userId) ?? null)
     this.workspaces.set(workspace.id, workspace)
-    this.memberships.set(userId, workspace.id)
+    const exists = this.memberships.some(
+      (item) => item.userId === userId && item.workspaceId === workspace.id,
+    )
+    if (!exists) {
+      this.memberships.push({ userId, workspaceId: workspace.id })
+    }
   }
 
   private projectTitle(
@@ -505,11 +511,19 @@ export class MemoryOxanaRepo implements OxanaRepository {
     return item
   }
 
-  async scheduleRemindersForTask(): Promise<void> {
+  async scheduleRemindersForTask(
+    _workspaceId: string,
+    _userId: string,
+    _task: OxanaTask,
+  ): Promise<void> {
     return
   }
 
-  async scheduleRemindersForEvent(): Promise<void> {
+  async scheduleRemindersForEvent(
+    _workspaceId: string,
+    _userId: string,
+    _event: OxanaEvent,
+  ): Promise<void> {
     return
   }
 }
