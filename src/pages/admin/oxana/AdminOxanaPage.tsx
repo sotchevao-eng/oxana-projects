@@ -251,7 +251,14 @@ function ChatPanel({
     setSending(true)
     setNotice(null)
     setMessage('')
-    setTurns((current) => [...current, { role: 'user', text }])
+    setTurns((current) => [
+      ...current.map((turn) =>
+        turn.role === 'assistant' && turn.proposalStatus === 'open'
+          ? { ...turn, proposalStatus: 'cancelled' as const }
+          : turn,
+      ),
+      { role: 'user', text },
+    ])
     const result = await sendOxanaChat(token, text)
     setSending(false)
     if (result.ok) {
@@ -316,6 +323,7 @@ function ChatPanel({
                 turn.proposalStatus !== 'cancelled' &&
                 turn.idempotencyKey ? (
                   <OxanaTaskProposalCard
+                    key={turn.idempotencyKey}
                     token={token}
                     timezone={timezone}
                     proposal={turn.proposal}

@@ -12,6 +12,10 @@ import type {
 } from '../../../types/oxana'
 import { fromDateTimeLocal, toDateTimeLocal } from '../../../utils/oxanaTime'
 import {
+  isProposalCardLocked,
+  proposalCardHeading,
+} from './oxanaProposalCard'
+import {
   OXANA_CARD_CLASS,
   OXANA_FIELD_CLASS,
   OXANA_TEXTAREA_CLASS,
@@ -41,7 +45,7 @@ export function OxanaTaskProposalCard({
   onError,
   onCreated,
 }: Props) {
-  const locked = status !== 'open'
+  const locked = isProposalCardLocked(status)
   const busyRef = useRef(false)
   const [title, setTitle] = useState(proposal.title)
   const [description, setDescription] = useState(proposal.description ?? '')
@@ -49,6 +53,23 @@ export function OxanaTaskProposalCard({
   const [priority, setPriority] = useState<OxanaTaskPriority>(proposal.priority)
   const [projectId, setProjectId] = useState(proposal.projectId ?? '')
   const [projects, setProjects] = useState<OxanaProject[]>([])
+
+  useEffect(() => {
+    setTitle(proposal.title)
+    setDescription(proposal.description ?? '')
+    setDueAt(toDateTimeLocal(proposal.dueAt, timezone))
+    setPriority(proposal.priority)
+    setProjectId(proposal.projectId ?? '')
+    busyRef.current = false
+  }, [
+    idempotencyKey,
+    proposal.title,
+    proposal.description,
+    proposal.dueAt,
+    proposal.priority,
+    proposal.projectId,
+    timezone,
+  ])
 
   useEffect(() => {
     void fetchOxanaProjects(token).then((result) => {
@@ -91,12 +112,10 @@ export function OxanaTaskProposalCard({
     <div className={`${OXANA_CARD_CLASS} w-full space-y-2.5`}>
       <div>
         <p
-          className="text-xs font-medium tracking-[0.08em] text-muted uppercase"
-          role={status === 'created' ? 'status' : undefined}
+          className="text-xs font-medium tracking-[0.08em] text-muted"
+          role="status"
         >
-          {status === 'created'
-            ? 'Задача создана'
-            : 'Черновик задачи подготовлен'}
+          {proposalCardHeading(status)}
         </p>
         {proposal.dueLabel && status !== 'created' ? (
           <p className="mt-0.5 text-xs text-muted">Срок: {proposal.dueLabel}</p>
@@ -104,6 +123,8 @@ export function OxanaTaskProposalCard({
       </div>
       <input
         className={OXANA_FIELD_CLASS}
+        name={`oxana-proposal-title-${idempotencyKey}`}
+        autoComplete="off"
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         placeholder="Название"
@@ -112,6 +133,8 @@ export function OxanaTaskProposalCard({
       />
       <textarea
         className={OXANA_TEXTAREA_CLASS}
+        name={`oxana-proposal-description-${idempotencyKey}`}
+        autoComplete="off"
         value={description}
         onChange={(event) => setDescription(event.target.value)}
         placeholder="Описание, если нужно"
