@@ -13,6 +13,7 @@ export interface OxanaAiProvider {
   id: 'gigachat'
   isConfigured(): boolean
   chat(request: OxanaAiChatRequest): Promise<OxanaAiChatResult>
+  listModels(): Promise<string[]>
 }
 
 export class GigaChatAdapter implements OxanaAiProvider {
@@ -36,6 +37,13 @@ export class GigaChatAdapter implements OxanaAiProvider {
     }
     const reply = await this.client.chat(request.message)
     return { reply }
+  }
+
+  async listModels(): Promise<string[]> {
+    if (!this.isConfigured()) {
+      throw new OxanaAiNotConfiguredError()
+    }
+    return this.client.listModels()
   }
 }
 

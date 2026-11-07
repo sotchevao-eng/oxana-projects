@@ -5,6 +5,7 @@ import { createApp } from '../app.js'
 import { GigaChatAdapter } from './aiAdapter.js'
 import {
   GIGACHAT_CHAT_URL,
+  GIGACHAT_MODELS_URL,
   GIGACHAT_OAUTH_URL,
   GigachatClient,
   OXANA_CHAT_SYSTEM_PROMPT,
@@ -16,6 +17,7 @@ import { MemoryOxanaRepo } from './memoryRepo.js'
 
 const TEST_SECRET = 'oxana-test-jwt-secret-please-change'
 const OWNER_A = '11111111-1111-4111-8111-111111111111'
+const STRANGER = '22222222-2222-4222-8222-222222222222'
 
 async function signToken(userId: string): Promise<string> {
   return new SignJWT({ sub: userId })
@@ -33,6 +35,7 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
 let previousAllowlist: string | undefined
 let previousJwtSecret: string | undefined
 let previousAuthKey: string | undefined
+let previousDiag: string | undefined
 
 function restoreEnv(): void {
   if (previousAllowlist === undefined) {
@@ -50,15 +53,22 @@ function restoreEnv(): void {
   } else {
     process.env.GIGACHAT_AUTH_KEY = previousAuthKey
   }
+  if (previousDiag === undefined) {
+    delete process.env.OXANA_GIGACHAT_DIAG
+  } else {
+    process.env.OXANA_GIGACHAT_DIAG = previousDiag
+  }
 }
 
 function isolateEnv(): void {
   previousAllowlist = process.env.OXANA_ALLOWED_USER_IDS
   previousJwtSecret = process.env.SUPABASE_JWT_SECRET
   previousAuthKey = process.env.GIGACHAT_AUTH_KEY
+  previousDiag = process.env.OXANA_GIGACHAT_DIAG
   process.env.SUPABASE_JWT_SECRET = TEST_SECRET
   process.env.OXANA_ALLOWED_USER_IDS = OWNER_A
   process.env.GIGACHAT_AUTH_KEY = 'dGVzdC1hdXRoLWtleQ=='
+  delete process.env.OXANA_GIGACHAT_DIAG
 }
 
 afterEach(() => {
@@ -77,6 +87,17 @@ function mockTransport(handler: (request: GigachatTransportRequest) => {
       return handler(request)
     },
   }
+}
+
+async function getModels(
+  app: ReturnType<typeof createApp>,
+  token?: string,
+) {
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+  return app.request('/api/oxana/ai/models', { headers })
 }
 
 async function postChat(
@@ -431,4 +452,201 @@ test('chat still requires the owner allowlist', async () => {
   const body = await readJson(response)
   assert.equal(response.status, 401)
   assert.equal(body.reply, undefined)
+})
+
+test('models diagnostic stays hidden without the diag flag', async () => {
+  isolateEnv()
+  process.env.OXANA_GIGACHAT_DIAG = 'true'
+  const token = await signToken(OWNER_A)
+  const { calls, transport } = mockTransport(() => {
+    throw new Error('GigaChat must not be called')
+  })
+  const app = createApp({
+    oxanaRepo: new MemoryOxanaRepo(),
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const response = await getModels(app, token)
+  const body = await readJson(response)
+  assert.equal(response.status, 404)
+  assert.equal(body.error, 'oxana_not_found')
+  assert.equal(body.models, undefined)
+  assert.equal(calls.length, 0)
+})
+
+test('models diagnostic requires an owner token even when enabled', async () => {
+  isolateEnv()
+  process.env.OXANA_GIGACHAT_DIAG = '1'
+  const { calls, transport } = mockTransport(() => {
+    throw new Error('GigaChat must not be called')
+  })
+  const app = createApp({
+    oxanaRepo: new MemoryOxanaRepo(),
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const missing = await getModels(app)
+  const missingBody = await readJson(missing)
+  assert.equal(missing.status, 401)
+  assert.equal(missingBody.error, 'unauthorized')
+  assert.equal(missingBody.models, undefined)
+
+  const stranger = await getModels(app, await signToken(STRANGER))
+  const strangerBody = await readJson(stranger)
+  assert.equal(stranger.status, 403)
+  assert.equal(strangerBody.error, 'oxana_forbidden')
+  assert.equal(strangerBody.models, undefined)
+  assert.equal(calls.length, 0)
+})
+
+test('models diagnostic returns only GigaChat model ids', async () => {
+  isolateEnv()
+  process.env.OXANA_GIGACHAT_DIAG = '1'
+  const { calls, transport } = mockTransport((request) => {
+    if (request.url === GIGACHAT_OAUTH_URL) {
+      return {
+        status: 200,
+        text: JSON.stringify({
+          access_token: 'access-token',
+          expires_at: Date.now() + 30 * 60_000,
+        }),
+      }
+    }
+    return {
+      status: 200,
+      text: JSON.stringify({
+        object: 'list',
+        data: [
+          {
+            id: 'GigaChat-2',
+            object: 'model',
+            owned_by: 'salutedevices',
+            access_token: 'must-not-leak',
+          },
+          { id: 'GigaChat-3-Ultra', owned_by: 'salutedevices' },
+          { object: 'model' },
+        ],
+      }),
+    }
+  })
+  const app = createApp({
+    oxanaRepo: new MemoryOxanaRepo(),
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const response = await getModels(app, await signToken(OWNER_A))
+  const body = await readJson(response)
+  assert.equal(response.status, 200)
+  assert.equal(body.ok, true)
+  assert.deepEqual(body.models, ['GigaChat-2', 'GigaChat-3-Ultra'])
+  const serialized = JSON.stringify(body)
+  assert.equal(serialized.includes('owned_by'), false)
+  assert.equal(serialized.includes('must-not-leak'), false)
+  assert.equal(serialized.includes('access-token'), false)
+  assert.equal(serialized.includes('dGVzdC1hdXRoLWtleQ=='), false)
+  assert.equal(calls.some((item) => item.url === GIGACHAT_MODELS_URL), true)
+  assert.equal(calls.some((item) => item.url === GIGACHAT_CHAT_URL), false)
+  const modelsCall = calls.find((item) => item.url === GIGACHAT_MODELS_URL)
+  assert.equal(modelsCall?.method, 'GET')
+  assert.equal(modelsCall?.headers.Authorization, 'Bearer access-token')
+  assert.equal(modelsCall?.headers['User-Agent'], 'OXANA-PII-API/0.1')
+  assert.equal(modelsCall?.body, undefined)
+})
+
+test('models diagnostic maps GigaChat errors without a model list', async () => {
+  isolateEnv()
+  process.env.OXANA_GIGACHAT_DIAG = '1'
+  const token = await signToken(OWNER_A)
+
+  const unauthorized = createApp({
+    oxanaRepo: new MemoryOxanaRepo(),
+    oxanaAiProvider: new GigaChatAdapter({
+      transport: async () => ({
+        status: 401,
+        text: JSON.stringify({ status: 401, message: 'Unauthorized' }),
+      }),
+    }),
+  })
+  const authResponse = await getModels(unauthorized, token)
+  const authBody = await readJson(authResponse)
+  assert.equal(authResponse.status, 502)
+  assert.equal(authBody.error, 'ai_auth_failed')
+  assert.equal(authBody.models, undefined)
+
+  const timedOut = createApp({
+    oxanaRepo: new MemoryOxanaRepo(),
+    oxanaAiProvider: new GigaChatAdapter({
+      transport: async () => {
+        throw Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })
+      },
+    }),
+  })
+  const timeoutResponse = await getModels(timedOut, token)
+  const timeoutBody = await readJson(timeoutResponse)
+  assert.equal(timeoutResponse.status, 503)
+  assert.equal(timeoutBody.error, 'ai_unavailable')
+  assert.equal(timeoutBody.models, undefined)
+
+  delete process.env.GIGACHAT_AUTH_KEY
+  const missing = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const missingResponse = await getModels(missing, token)
+  const missingBody = await readJson(missingResponse)
+  assert.equal(missingResponse.status, 503)
+  assert.equal(missingBody.error, 'ai_not_configured')
+  assert.equal(missingBody.models, undefined)
+})
+
+test('chat route stays fail-closed when models diagnostic is enabled', async () => {
+  isolateEnv()
+  process.env.OXANA_GIGACHAT_DIAG = '1'
+  delete process.env.GIGACHAT_AUTH_KEY
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const response = await postChat(app)
+  const body = await readJson(response)
+  assert.equal(response.status, 503)
+  assert.equal(body.error, 'ai_not_configured')
+  assert.equal(body.reply, undefined)
+})
+
+test('models diagnostic logs omit secrets and raw GigaChat payloads', async () => {
+  isolateEnv()
+  process.env.OXANA_GIGACHAT_DIAG = '1'
+  const lines: string[] = []
+  const original = console.info
+  console.info = (message?: unknown) => {
+    lines.push(String(message))
+  }
+  try {
+    const { transport } = mockTransport((request) => {
+      if (request.url === GIGACHAT_OAUTH_URL) {
+        return {
+          status: 200,
+          text: JSON.stringify({
+            access_token: 'super-secret-access-token',
+            expires_at: Date.now() + 30 * 60_000,
+          }),
+        }
+      }
+      return {
+        status: 200,
+        text: JSON.stringify({
+          data: [{ id: 'GigaChat-2', owned_by: 'must-not-log' }],
+        }),
+      }
+    })
+    const app = createApp({
+      oxanaRepo: new MemoryOxanaRepo(),
+      oxanaAiProvider: new GigaChatAdapter({
+        env: {
+          GIGACHAT_AUTH_KEY: 'dGVzdC1hdXRoLWtleQ==',
+        },
+        transport,
+      }),
+    })
+    await getModels(app, await signToken(OWNER_A))
+    const logged = lines.join('\n')
+    assert.equal(logged.includes('dGVzdC1hdXRoLWtleQ=='), false)
+    assert.equal(logged.includes('super-secret-access-token'), false)
+    assert.equal(logged.includes('must-not-log'), false)
+    assert.equal(logged.includes('owned_by'), false)
+  } finally {
+    console.info = original
+  }
 })
