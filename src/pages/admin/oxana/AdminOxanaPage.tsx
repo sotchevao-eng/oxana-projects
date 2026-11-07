@@ -8,7 +8,7 @@ import {
   isOxanaApiConfigured,
   sendOxanaChat,
 } from '../../../services/oxanaService'
-import type { OxanaOwnerSettings } from '../../../types/oxana'
+import type { OxanaOwnerSettings, OxanaTaskProposal } from '../../../types/oxana'
 import { oxanaErrorMessage } from '../../../utils/oxanaErrors'
 import { DEFAULT_OXANA_TIMEZONE } from '../../../utils/oxanaTime'
 import { OxanaCalendarPanel } from './OxanaCalendarPanel'
@@ -16,6 +16,7 @@ import { OxanaNotificationsPanel } from './OxanaNotificationsPanel'
 import { OxanaOverviewPanel } from './OxanaOverviewPanel'
 import { OxanaProjectsPanel } from './OxanaProjectsPanel'
 import { OxanaSettingsPanel } from './OxanaSettingsPanel'
+import { OxanaTaskProposalCard } from './OxanaTaskProposalCard'
 import { OxanaTasksPanel } from './OxanaTasksPanel'
 import { type OxanaFocus, type OxanaTabId } from './oxanaUi'
 
@@ -47,6 +48,7 @@ export function AdminOxanaPage() {
   const [focus, setFocus] = useState<OxanaFocus>({ tab: 'overview' })
   const [settings, setSettings] = useState<OxanaOwnerSettings>(DEFAULT_SETTINGS)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [cabinetEpoch, setCabinetEpoch] = useState(0)
 
   useEffect(() => {
     if (authLoading || !token) return
@@ -113,15 +115,23 @@ export function AdminOxanaPage() {
           </div>
           {focus.tab === 'overview' ? (
             <OxanaOverviewPanel
+              key={cabinetEpoch}
               token={token}
               authLoading={authLoading}
               dateFormat={settings.dateFormat}
               onNavigate={onNavigate}
             />
           ) : null}
-          {focus.tab === 'chat' ? <ChatPanel token={token} /> : null}
+          {focus.tab === 'chat' ? (
+            <ChatPanel
+              token={token}
+              timezone={settings.timezone}
+              onTaskCreated={() => setCabinetEpoch((value) => value + 1)}
+            />
+          ) : null}
           {focus.tab === 'tasks' ? (
             <OxanaTasksPanel
+              key={cabinetEpoch}
               token={token}
               authLoading={authLoading}
               timezone={settings.timezone}
@@ -173,18 +183,64 @@ export function AdminOxanaPage() {
   )
 }
 
-function ChatPanel({ token }: { token: string }) {
+type ChatTurn =
+  | { role: 'user'; text: string }
+  | {
+      role: 'assistant'
+      text: string
+      proposal?: OxanaTaskProposal
+      proposalStatus?: 'open' | 'submitting' | 'created' | 'cancelled'
+      proposalError?: string | null
+      idempotencyKey?: string
+    }
+
+function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+  const bytes = new Uint8Array(16)
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Math.floor(Math.random() * 256)
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = [...bytes].map((item) => item.toString(16).padStart(2, '0'))
+  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex
+    .slice(6, 8)
+    .join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10).join('')}`
+}
+
+function ChatPanel({
+  token,
+  timezone,
+  onTaskCreated,
+}: {
+  token: string
+  timezone: string
+  onTaskCreated: () => void
+}) {
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  const [turns, setTurns] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>(
-    [],
-  )
+  const [turns, setTurns] = useState<ChatTurn[]>([])
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [turns, sending])
+
+  const updateAssistant = (
+    index: number,
+    patch: Partial<Extract<ChatTurn, { role: 'assistant' }>>,
+  ) => {
+    setTurns((current) =>
+      current.map((turn, itemIndex) =>
+        itemIndex === index && turn.role === 'assistant'
+          ? { ...turn, ...patch }
+          : turn,
+      ),
+    )
+  }
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
@@ -199,9 +255,19 @@ function ChatPanel({ token }: { token: string }) {
     const result = await sendOxanaChat(token, text)
     setSending(false)
     if (result.ok) {
+      const proposal =
+        result.data.proposal?.type === 'create_task'
+          ? result.data.proposal
+          : undefined
       setTurns((current) => [
         ...current,
-        { role: 'assistant', text: result.data.reply },
+        {
+          role: 'assistant',
+          text: result.data.reply,
+          proposal,
+          proposalStatus: proposal ? 'open' : undefined,
+          idempotencyKey: proposal ? newIdempotencyKey() : undefined,
+        },
       ])
       return
     }
@@ -225,24 +291,48 @@ function ChatPanel({ token }: { token: string }) {
           turns.map((turn, index) => {
             const mine = turn.role === 'user'
             return (
-              <div
-                key={`${turn.role}-${index}`}
-                className={`flex w-[72%] max-w-[72%] flex-col ${
-                  mine ? 'ml-auto items-end' : 'mr-auto items-start'
-                }`}
-              >
-                <p className="mb-0.5 px-1 text-[10px] font-medium tracking-[0.06em] text-muted uppercase">
-                  {mine ? 'Вы' : 'ОКСИ'}
-                </p>
+              <div key={`${turn.role}-${index}`} className="flex flex-col gap-2">
                 <div
-                  className={`whitespace-pre-wrap px-3 py-2 text-sm leading-relaxed text-ink ${
-                    mine
-                      ? 'rounded-2xl rounded-tr-md bg-accent/20'
-                      : 'rounded-2xl rounded-tl-md bg-soft'
+                  className={`flex w-[72%] max-w-[72%] flex-col ${
+                    mine ? 'ml-auto items-end' : 'mr-auto items-start'
                   }`}
                 >
-                  {turn.text}
+                  <p className="mb-0.5 px-1 text-[10px] font-medium tracking-[0.06em] text-muted uppercase">
+                    {mine ? 'Вы' : 'ОКСИ'}
+                  </p>
+                  <div
+                    className={`whitespace-pre-wrap px-3 py-2 text-sm leading-relaxed text-ink ${
+                      mine
+                        ? 'rounded-2xl rounded-tr-md bg-accent/20'
+                        : 'rounded-2xl rounded-tl-md bg-soft'
+                    }`}
+                  >
+                    {turn.text}
+                  </div>
                 </div>
+                {turn.role === 'assistant' &&
+                turn.proposal &&
+                turn.proposalStatus &&
+                turn.proposalStatus !== 'cancelled' &&
+                turn.idempotencyKey ? (
+                  <OxanaTaskProposalCard
+                    token={token}
+                    timezone={timezone}
+                    proposal={turn.proposal}
+                    status={turn.proposalStatus}
+                    error={turn.proposalError ?? null}
+                    idempotencyKey={turn.idempotencyKey}
+                    onStatus={(proposalStatus) =>
+                      updateAssistant(index, { proposalStatus })
+                    }
+                    onError={(proposalError) =>
+                      updateAssistant(index, { proposalError })
+                    }
+                    onCreated={() => {
+                      onTaskCreated()
+                    }}
+                  />
+                ) : null}
               </div>
             )
           })

@@ -88,6 +88,13 @@ export interface OxanaStatus {
     telegram: boolean
     max: boolean
   }
+  reminders?: {
+    enabled: boolean
+    running: boolean
+    last_tick_at: string | null
+    last_tick_success: boolean | null
+    last_tick_error_code: string | null
+  }
 }
 
 export interface OxanaOwnerSettings {
@@ -112,6 +119,17 @@ export interface OxanaOverview {
   completionPercent: number
   latestNotifications: OxanaNotification[]
   unreadCount: number
+}
+
+export interface OxanaTaskProposal {
+  type: 'create_task'
+  title: string
+  description: string | null
+  dueAt: string | null
+  dueLabel: string | null
+  priority: OxanaTaskPriority
+  projectId: string | null
+  projectTitle: string | null
 }
 
 export interface OxanaApiError {
