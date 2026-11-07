@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost'
-type ButtonSize = 'md' | 'lg'
+type ButtonSize = 'sm' | 'md' | 'lg'
 
 interface ButtonProps {
   children: ReactNode
@@ -29,6 +29,7 @@ const variantClasses: Record<ButtonVariant, string> = {
 }
 
 const sizeClasses: Record<ButtonSize, string> = {
+  sm: 'px-3.5 py-2 text-sm',
   md: 'px-5 py-3 text-sm',
   lg: 'px-7 py-4 text-base',
 }

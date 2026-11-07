@@ -81,10 +81,10 @@ export function OxanaSettingsPanel({
   }
 
   return (
-    <section className="space-y-4 rounded-xl border border-border bg-surface p-4 sm:p-5">
+    <section className="space-y-3 rounded-[1.125rem] border border-border bg-surface p-4">
       <div>
         <h2 className="text-sm font-semibold text-ink">Настройки ОКСИ</h2>
-        <p className="mt-1 text-sm text-muted">
+        <p className="mt-0.5 text-xs text-muted">
           Секреты, пароли и строки подключения здесь не показываются.
         </p>
       </div>
@@ -95,151 +95,170 @@ export function OxanaSettingsPanel({
         loadingText="Загрузка настроек..."
       />
       {error ? (
-        <Button type="button" variant="secondary" onClick={() => void reload()}>
+        <Button type="button" size="sm" variant="secondary" onClick={() => void reload()}>
           Повторить
         </Button>
       ) : null}
 
       {settings ? (
-        <form className="space-y-4" onSubmit={(event) => void handleSave(event)}>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-muted">Отображаемое имя</span>
-            <input
-              className={OXANA_FIELD_CLASS}
-              value={settings.displayName}
-              onChange={(event) => patch({ displayName: event.target.value })}
-              maxLength={80}
-            />
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-muted">Часовой пояс</span>
-            <select
-              className={OXANA_FIELD_CLASS}
-              value={settings.timezone}
-              onChange={(event) => patch({ timezone: event.target.value })}
-            >
-              {OXANA_TIMEZONES.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-muted">Формат даты</span>
-            <select
-              className={OXANA_FIELD_CLASS}
-              value={settings.dateFormat}
-              onChange={(event) =>
-                patch({ dateFormat: event.target.value as 'date' | 'datetime' })
-              }
-            >
-              <option value="datetime">Дата и время</option>
-              <option value="date">Только дата</option>
-            </select>
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-muted">Тема</span>
-            <select
-              className={OXANA_FIELD_CLASS}
-              value={theme}
-              onChange={(event) => setTheme(event.target.value as 'light' | 'dark')}
-            >
-              <option value="light">Светлая</option>
-              <option value="dark">Тёмная</option>
-            </select>
-          </label>
+        <form className="space-y-3" onSubmit={(event) => void handleSave(event)}>
+          <section className="space-y-2.5">
+            <h3 className="text-xs font-semibold tracking-[0.06em] text-muted uppercase">
+              Профиль
+            </h3>
+            <div className="grid gap-2.5 md:grid-cols-2">
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-muted">Отображаемое имя</span>
+                <input
+                  className={OXANA_FIELD_CLASS}
+                  value={settings.displayName}
+                  onChange={(event) => patch({ displayName: event.target.value })}
+                  maxLength={80}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-muted">Часовой пояс</span>
+                <select
+                  className={OXANA_FIELD_CLASS}
+                  value={settings.timezone}
+                  onChange={(event) => patch({ timezone: event.target.value })}
+                >
+                  {OXANA_TIMEZONES.map((zone) => (
+                    <option key={zone} value={zone}>
+                      {zone}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-muted">Формат даты</span>
+                <select
+                  className={OXANA_FIELD_CLASS}
+                  value={settings.dateFormat}
+                  onChange={(event) =>
+                    patch({ dateFormat: event.target.value as 'date' | 'datetime' })
+                  }
+                >
+                  <option value="datetime">Дата и время</option>
+                  <option value="date">Только дата</option>
+                </select>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-muted">Тема</span>
+                <select
+                  className={OXANA_FIELD_CLASS}
+                  value={theme}
+                  onChange={(event) => setTheme(event.target.value as 'light' | 'dark')}
+                >
+                  <option value="light">Светлая</option>
+                  <option value="dark">Тёмная</option>
+                </select>
+              </label>
+            </div>
+          </section>
 
-          <fieldset className="space-y-2 rounded-lg border border-border px-3 py-3">
+          <fieldset className="space-y-1.5 rounded-xl border border-border px-3 py-2.5">
             <legend className="px-1 text-xs font-medium text-muted">
               Виды уведомлений
             </legend>
-            <Toggle
-              label="За сутки до срока задачи"
-              checked={settings.notifyTaskDueSoon}
-              onChange={(checked) => patch({ notifyTaskDueSoon: checked })}
-            />
-            <Toggle
-              label="В день выполнения задачи"
-              checked={settings.notifyTaskDueDay}
-              onChange={(checked) => patch({ notifyTaskDueDay: checked })}
-            />
-            <Toggle
-              label="При наступлении просрочки"
-              checked={settings.notifyTaskOverdue}
-              onChange={(checked) => patch({ notifyTaskOverdue: checked })}
-            />
-            <Toggle
-              label="Перед началом события"
-              checked={settings.notifyEvent}
-              onChange={(checked) => patch({ notifyEvent: checked })}
-            />
+            <div className="grid gap-1.5 md:grid-cols-2">
+              <Toggle
+                label="За сутки до срока задачи"
+                checked={settings.notifyTaskDueSoon}
+                onChange={(checked) => patch({ notifyTaskDueSoon: checked })}
+              />
+              <Toggle
+                label="В день выполнения задачи"
+                checked={settings.notifyTaskDueDay}
+                onChange={(checked) => patch({ notifyTaskDueDay: checked })}
+              />
+              <Toggle
+                label="При наступлении просрочки"
+                checked={settings.notifyTaskOverdue}
+                onChange={(checked) => patch({ notifyTaskOverdue: checked })}
+              />
+              <Toggle
+                label="Перед началом события"
+                checked={settings.notifyEvent}
+                onChange={(checked) => patch({ notifyEvent: checked })}
+              />
+            </div>
           </fieldset>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-muted">
-                За сколько часов напоминать о задаче
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={168}
-                className={OXANA_FIELD_CLASS}
-                value={settings.taskSoonHours}
-                onChange={(event) =>
-                  patch({ taskSoonHours: Number(event.target.value) })
-                }
-              />
-            </label>
-            <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-muted">
-                За сколько минут напоминать о событии
-              </span>
-              <input
-                type="number"
-                min={5}
-                max={1440}
-                className={OXANA_FIELD_CLASS}
-                value={settings.eventSoonMinutes}
-                onChange={(event) =>
-                  patch({ eventSoonMinutes: Number(event.target.value) })
-                }
-              />
-            </label>
-          </div>
+          <section className="space-y-2.5">
+            <h3 className="text-xs font-semibold tracking-[0.06em] text-muted uppercase">
+              Напоминания
+            </h3>
+            <div className="grid gap-2.5 md:grid-cols-2">
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-muted">
+                  За сколько часов напоминать о задаче
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  className={OXANA_FIELD_CLASS}
+                  value={settings.taskSoonHours}
+                  onChange={(event) =>
+                    patch({ taskSoonHours: Number(event.target.value) })
+                  }
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-muted">
+                  За сколько минут напоминать о событии
+                </span>
+                <input
+                  type="number"
+                  min={5}
+                  max={1440}
+                  className={OXANA_FIELD_CLASS}
+                  value={settings.eventSoonMinutes}
+                  onChange={(event) =>
+                    patch({ eventSoonMinutes: Number(event.target.value) })
+                  }
+                />
+              </label>
+            </div>
+          </section>
 
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" size="sm" disabled={saving}>
             {saving ? 'Сохранение...' : 'Сохранить настройки'}
           </Button>
         </form>
       ) : null}
 
       {status ? (
-        <dl className="grid gap-3 text-sm sm:grid-cols-2">
-          <StatusCard title="Контур" value={status.workspace.name} />
-          <StatusCard
-            title="PostgreSQL"
-            value={status.database?.connected ? 'Подключена' : 'Нет соединения'}
-          />
-          <StatusCard title="API ОКСИ" value={status.api?.ready ? 'Готов' : 'Не готов'} />
-          <StatusCard
-            title="ИИ"
-            value={
-              status.ai.ready
-                ? `${status.ai.provider} · готов`
-                : `${status.ai.provider} · не подключён`
-            }
-          />
-          <StatusCard
-            title="Telegram"
-            value={status.channels.telegram ? 'Подключён' : 'Не активирован'}
-          />
-          <StatusCard
-            title="MAX"
-            value={status.channels.max ? 'Подключён' : 'Не активирован'}
-          />
-        </dl>
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold tracking-[0.06em] text-muted uppercase">
+            Система
+          </h3>
+          <dl className="grid grid-cols-2 gap-2 text-sm lg:grid-cols-3">
+            <StatusCard title="Контур" value={status.workspace.name} />
+            <StatusCard
+              title="PostgreSQL"
+              value={status.database?.connected ? 'Подключена' : 'Нет соединения'}
+            />
+            <StatusCard title="API ОКСИ" value={status.api?.ready ? 'Готов' : 'Не готов'} />
+            <StatusCard
+              title="ИИ"
+              value={
+                status.ai.ready
+                  ? `${status.ai.provider} · готов`
+                  : `${status.ai.provider} · не подключён`
+              }
+            />
+            <StatusCard
+              title="Telegram"
+              value={status.channels.telegram ? 'Подключён' : 'Не активирован'}
+            />
+            <StatusCard
+              title="MAX"
+              value={status.channels.max ? 'Подключён' : 'Не активирован'}
+            />
+          </dl>
+        </section>
       ) : null}
     </section>
   )
@@ -268,9 +287,9 @@ function Toggle({
 
 function StatusCard({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border px-3 py-3">
-      <dt className="text-xs text-muted">{title}</dt>
-      <dd className="mt-1 text-ink">{value}</dd>
+    <div className="flex h-full min-h-[4.25rem] flex-col justify-center rounded-xl border border-border px-3 py-2.5">
+      <dt className="text-[11px] text-muted">{title}</dt>
+      <dd className="mt-0.5 truncate text-sm text-ink">{value}</dd>
     </div>
   )
 }

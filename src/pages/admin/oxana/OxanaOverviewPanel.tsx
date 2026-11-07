@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { OxanaMascot } from '../../../components/admin/oxana/OxanaMascot'
 import { Button } from '../../../components/Button'
 import { DataStatus } from '../../../components/DataStatus'
 import { fetchOxanaOverview } from '../../../services/oxanaService'
@@ -53,28 +52,26 @@ export function OxanaOverviewPanel({
   const timezone = data?.timezone || 'Europe/Moscow'
 
   return (
-    <div className="space-y-4">
-      <section className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-        <div>
-          <p className="text-[11px] font-semibold tracking-[0.12em] text-muted uppercase">
-            Рабочая панель
-          </p>
-          <h2 className="mt-1 text-lg font-semibold text-ink">
-            Здравствуйте, {name}
-          </h2>
-          <p className="mt-1 text-sm text-muted">
-            Живые данные из PostgreSQL ОКСИ. Показатели не выдуманы.
-          </p>
-        </div>
-        <OxanaMascot className="w-full max-w-[14rem] sm:max-w-[16rem]" />
+    <div className="space-y-3">
+      <section className="rounded-[1.125rem] border border-border bg-surface px-4 py-3">
+        <p className="text-[10px] font-semibold tracking-[0.12em] text-muted uppercase">
+          Рабочая панель
+        </p>
+        <h2 className="mt-0.5 text-base font-semibold text-ink">
+          Здравствуйте, {name}
+        </h2>
+        <p className="mt-0.5 text-xs text-muted sm:text-sm">
+          Живые данные из PostgreSQL ОКСИ. Показатели не выдуманы.
+        </p>
       </section>
 
       <div className="flex flex-wrap gap-2">
-        <Button type="button" onClick={() => onNavigate({ tab: 'tasks' })}>
+        <Button type="button" size="sm" onClick={() => onNavigate({ tab: 'tasks' })}>
           Новая задача
         </Button>
         <Button
           type="button"
+          size="sm"
           variant="secondary"
           onClick={() => onNavigate({ tab: 'projects' })}
         >
@@ -82,6 +79,7 @@ export function OxanaOverviewPanel({
         </Button>
         <Button
           type="button"
+          size="sm"
           variant="secondary"
           onClick={() => onNavigate({ tab: 'calendar' })}
         >
@@ -91,23 +89,23 @@ export function OxanaOverviewPanel({
 
       <DataStatus loading={loading} error={error} loadingText="Загрузка обзора..." />
       {error ? (
-        <Button type="button" variant="secondary" onClick={() => void reload()}>
+        <Button type="button" size="sm" variant="secondary" onClick={() => void reload()}>
           Повторить
         </Button>
       ) : null}
 
       {data ? (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid auto-rows-fr gap-3 lg:grid-cols-2">
           <OverviewCard title="Задачи на сегодня" empty="На сегодня сроков нет.">
             {data.todayTasks.map((task) => (
               <button
                 key={task.id}
                 type="button"
-                className="block w-full rounded-lg border border-border px-3 py-2 text-left"
+                className="block w-full rounded-xl border border-border px-3 py-2 text-left"
                 onClick={() => onNavigate({ tab: 'tasks', taskId: task.id })}
               >
-                <p className="text-sm font-medium text-ink">{task.title}</p>
-                <p className="mt-1 text-xs text-muted">
+                <p className="truncate text-sm font-medium text-ink">{task.title}</p>
+                <p className="mt-0.5 text-xs text-muted">
                   {TASK_STATUS_LABELS[task.status]}
                   {task.dueAt
                     ? ` · ${formatOxanaDate(task.dueAt, timezone, dateFormat)}`
@@ -122,11 +120,11 @@ export function OxanaOverviewPanel({
               <button
                 key={task.id}
                 type="button"
-                className="block w-full rounded-lg border border-red-300/60 bg-red-50/40 px-3 py-2 text-left dark:bg-red-950/20"
+                className="block w-full rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-left"
                 onClick={() => onNavigate({ tab: 'tasks', taskId: task.id })}
               >
-                <p className="text-sm font-medium text-ink">{task.title}</p>
-                <p className="mt-1 text-xs text-muted">
+                <p className="truncate text-sm font-medium text-ink">{task.title}</p>
+                <p className="mt-0.5 text-xs text-muted">
                   до {formatOxanaDate(task.dueAt, timezone, dateFormat)}
                 </p>
               </button>
@@ -138,11 +136,11 @@ export function OxanaOverviewPanel({
               <button
                 key={event.id}
                 type="button"
-                className="block w-full rounded-lg border border-border px-3 py-2 text-left"
+                className="block w-full rounded-xl border border-border px-3 py-2 text-left"
                 onClick={() => onNavigate({ tab: 'calendar', eventId: event.id })}
               >
-                <p className="text-sm font-medium text-ink">{event.title}</p>
-                <p className="mt-1 text-xs text-muted">
+                <p className="truncate text-sm font-medium text-ink">{event.title}</p>
+                <p className="mt-0.5 text-xs text-muted">
                   {formatOxanaDate(event.startsAt, timezone, dateFormat)}
                 </p>
               </button>
@@ -154,13 +152,13 @@ export function OxanaOverviewPanel({
               <button
                 key={project.id}
                 type="button"
-                className="block w-full rounded-lg border border-border px-3 py-2 text-left"
+                className="block w-full rounded-xl border border-border px-3 py-2 text-left"
                 onClick={() =>
                   onNavigate({ tab: 'projects', projectId: project.id })
                 }
               >
-                <p className="text-sm font-medium text-ink">{project.title}</p>
-                <p className="mt-1 text-xs text-muted">
+                <p className="truncate text-sm font-medium text-ink">{project.title}</p>
+                <p className="mt-0.5 text-xs text-muted">
                   {PROJECT_STATUS_LABELS[project.status]}
                   {` · задач ${project.taskCount ?? 0}`}
                   {project.taskCount
@@ -171,12 +169,12 @@ export function OxanaOverviewPanel({
             ))}
           </OverviewCard>
 
-          <section className="rounded-xl border border-border bg-surface p-4">
+          <section className="flex h-full min-h-[9.5rem] flex-col rounded-[1.125rem] border border-border bg-surface p-4">
             <h3 className="text-sm font-semibold text-ink">Выполнение</h3>
-            <p className="mt-3 text-3xl font-semibold text-ink">
+            <p className="mt-2 text-2xl font-semibold text-ink">
               {data.completionPercent}%
             </p>
-            <p className="mt-1 text-sm text-muted">
+            <p className="mt-1 text-xs text-muted">
               Доля задач со статусом «Готово».
             </p>
           </section>
@@ -191,7 +189,7 @@ export function OxanaOverviewPanel({
                 <button
                   key={item.id}
                   type="button"
-                  className="block w-full rounded-lg border border-border px-3 py-2 text-left"
+                  className="block w-full rounded-xl border border-border px-3 py-2 text-left"
                   onClick={() => {
                     if (ref?.kind === 'task') {
                       onNavigate({ tab: 'tasks', taskId: ref.id })
@@ -208,9 +206,9 @@ export function OxanaOverviewPanel({
                     onNavigate({ tab: 'notifications' })
                   }}
                 >
-                  <p className="text-sm font-medium text-ink">{item.title}</p>
+                  <p className="truncate text-sm font-medium text-ink">{item.title}</p>
                   {visibleNotificationBody(item.body) ? (
-                    <p className="mt-1 text-xs text-muted">
+                    <p className="mt-0.5 line-clamp-2 text-xs text-muted">
                       {visibleNotificationBody(item.body)}
                     </p>
                   ) : null}
@@ -236,9 +234,9 @@ function OverviewCard({
   const items = Array.isArray(children) ? children : [children]
   const hasItems = items.filter(Boolean).length > 0
   return (
-    <section className="rounded-xl border border-border bg-surface p-4">
+    <section className="flex h-full min-h-[9.5rem] flex-col rounded-[1.125rem] border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold text-ink">{title}</h3>
-      <div className="mt-3 space-y-2">
+      <div className="mt-2 space-y-1.5">
         {hasItems ? children : <p className="text-sm text-muted">{empty}</p>}
       </div>
     </section>

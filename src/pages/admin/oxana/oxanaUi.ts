@@ -22,7 +22,19 @@ export interface OxanaFocus {
 }
 
 export const OXANA_FIELD_CLASS =
-  'w-full rounded-lg border border-border bg-bg px-3 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent/50 disabled:opacity-60'
+  'h-11 w-full rounded-xl border border-border bg-bg px-3 text-sm text-ink outline-none transition-colors focus:border-accent/50 disabled:opacity-60'
+
+export const OXANA_TEXTAREA_CLASS =
+  'min-h-16 w-full resize-y rounded-xl border border-border bg-bg px-3 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent/50 disabled:opacity-60'
+
+export const OXANA_CARD_CLASS =
+  'rounded-[1.125rem] border border-border bg-surface p-4'
+
+export const OXANA_CHIP_CLASS =
+  'rounded-full border border-border px-2.5 py-1 text-[11px] text-muted transition-colors hover:bg-soft hover:text-ink disabled:opacity-40'
+
+export const OXANA_CHIP_ACTIVE_CLASS =
+  'rounded-full border border-accent/50 bg-soft px-2.5 py-1 text-[11px] font-medium text-ink'
 
 export const TASK_STATUS_LABELS: Record<OxanaTaskStatus, string> = {
   open: 'Открыта',

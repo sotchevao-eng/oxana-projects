@@ -19,6 +19,7 @@ import { formatOxanaDate, fromDateTimeLocal, toDateTimeLocal } from '../../../ut
 import type { OxanaFocus } from './oxanaUi'
 import {
   OXANA_FIELD_CLASS,
+  OXANA_TEXTAREA_CLASS,
   PROJECT_STATUS_LABELS,
   TASK_STATUS_LABELS,
   isArchivedTask,
@@ -209,9 +210,10 @@ export function OxanaProjectsPanel({
         : 0
 
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         <Button
           type="button"
+          size="sm"
           variant="secondary"
           onClick={() => setSelectedId(null)}
         >
@@ -223,20 +225,20 @@ export function OxanaProjectsPanel({
           loadingText="Загрузка проекта..."
         />
         {detail ? (
-          <section className="space-y-4 rounded-xl border border-border bg-surface p-4 sm:p-5">
-            <div className="grid gap-3">
+          <section className="space-y-3 rounded-[1.125rem] border border-border bg-surface p-4">
+            <div className="grid gap-2.5">
               <input
                 className={OXANA_FIELD_CLASS}
                 value={editTitle}
                 onChange={(event) => setEditTitle(event.target.value)}
               />
               <textarea
-                className={`${OXANA_FIELD_CLASS} min-h-20 resize-y`}
+                className={OXANA_TEXTAREA_CLASS}
                 value={editDescription}
                 onChange={(event) => setEditDescription(event.target.value)}
               />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block space-y-1.5">
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <label className="block space-y-1">
                   <span className="text-xs text-muted">Начало</span>
                   <input
                     type="datetime-local"
@@ -245,7 +247,7 @@ export function OxanaProjectsPanel({
                     onChange={(event) => setEditStartsAt(event.target.value)}
                   />
                 </label>
-                <label className="block space-y-1.5">
+                <label className="block space-y-1">
                   <span className="text-xs text-muted">Завершение</span>
                   <input
                     type="datetime-local"
@@ -271,11 +273,12 @@ export function OxanaProjectsPanel({
                 )}
               </select>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={() => void handleSave()}>
+                <Button type="button" size="sm" onClick={() => void handleSave()}>
                   Сохранить
                 </Button>
                 <Button
                   type="button"
+                  size="sm"
                   variant="ghost"
                   onClick={() => setDeleteOpen(true)}
                 >
@@ -294,11 +297,11 @@ export function OxanaProjectsPanel({
                   <button
                     key={task.id}
                     type="button"
-                    className="block w-full rounded-lg border border-red-300/70 px-3 py-2 text-left"
+                    className="block w-full rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-left"
                     onClick={() => onNavigate({ tab: 'tasks', taskId: task.id })}
                   >
-                    <p className="text-sm font-medium text-ink">{task.title}</p>
-                    <p className="mt-1 text-xs text-muted">
+                    <p className="truncate text-sm font-medium text-ink">{task.title}</p>
+                    <p className="mt-0.5 text-xs text-muted">
                       до {formatOxanaDate(task.dueAt, timezone, dateFormat)}
                     </p>
                   </button>
@@ -314,11 +317,11 @@ export function OxanaProjectsPanel({
                 <button
                   key={task.id}
                   type="button"
-                  className="block w-full rounded-lg border border-border px-3 py-3 text-left"
+                  className="block w-full rounded-xl border border-border px-3 py-2 text-left"
                   onClick={() => onNavigate({ tab: 'tasks', taskId: task.id })}
                 >
-                  <p className="text-sm font-medium text-ink">{task.title}</p>
-                  <p className="mt-1 text-xs text-muted">
+                  <p className="truncate text-sm font-medium text-ink">{task.title}</p>
+                  <p className="mt-0.5 text-xs text-muted">
                     {TASK_STATUS_LABELS[task.status]}
                     {task.dueAt
                       ? ` · срок ${formatOxanaDate(task.dueAt, timezone, dateFormat)}`
@@ -342,9 +345,9 @@ export function OxanaProjectsPanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <form
-        className="space-y-3 rounded-xl border border-border bg-surface p-4 sm:p-5"
+        className="space-y-2.5 rounded-[1.125rem] border border-border bg-surface p-4"
         onSubmit={(event) => void handleCreate(event)}
       >
         <h2 className="text-sm font-semibold text-ink">Новый проект ОКСИ</h2>
@@ -356,7 +359,7 @@ export function OxanaProjectsPanel({
           required
         />
         <textarea
-          className={`${OXANA_FIELD_CLASS} min-h-20 resize-y`}
+          className={OXANA_TEXTAREA_CLASS}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Краткое описание"
@@ -376,8 +379,8 @@ export function OxanaProjectsPanel({
             ),
           )}
         </select>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block space-y-1.5">
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          <label className="block space-y-1">
             <span className="text-xs text-muted">Начало</span>
             <input
               type="datetime-local"
@@ -386,7 +389,7 @@ export function OxanaProjectsPanel({
               onChange={(event) => setStartsAt(event.target.value)}
             />
           </label>
-          <label className="block space-y-1.5">
+          <label className="block space-y-1">
             <span className="text-xs text-muted">Завершение</span>
             <input
               type="datetime-local"
@@ -396,21 +399,21 @@ export function OxanaProjectsPanel({
             />
           </label>
         </div>
-        <Button type="submit" disabled={saving || !title.trim()}>
+        <Button type="submit" size="sm" disabled={saving || !title.trim()}>
           {saving ? 'Сохранение...' : 'Создать проект'}
         </Button>
       </form>
 
       <DataStatus loading={loading} error={error} loadingText="Загрузка проектов..." />
       {error ? (
-        <Button type="button" variant="secondary" onClick={() => void reload()}>
+        <Button type="button" size="sm" variant="secondary" onClick={() => void reload()}>
           Повторить
         </Button>
       ) : null}
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {!loading && projects.length === 0 && !error ? (
-          <p className="rounded-xl border border-border bg-surface px-4 py-6 text-sm text-muted">
+          <p className="rounded-[1.125rem] border border-border bg-surface px-4 py-4 text-sm text-muted">
             Проектов ОКСИ пока нет.
           </p>
         ) : null}
@@ -421,15 +424,15 @@ export function OxanaProjectsPanel({
           return (
             <article
               key={project.id}
-              className="rounded-xl border border-border bg-surface px-4 py-4"
+              className="rounded-[1.125rem] border border-border bg-surface px-4 py-3"
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="font-medium text-ink">{project.title}</p>
+              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-ink">{project.title}</p>
                   {project.description ? (
-                    <p className="mt-1 text-sm text-muted">{project.description}</p>
+                    <p className="mt-0.5 line-clamp-2 text-sm text-muted">{project.description}</p>
                   ) : null}
-                  <p className="mt-2 text-xs text-muted">
+                  <p className="mt-1.5 text-xs text-muted">
                     {PROJECT_STATUS_LABELS[project.status]} · задач{' '}
                     {project.taskCount ?? 0} · прогресс {progress}%
                     {project.startsAt
@@ -442,9 +445,16 @@ export function OxanaProjectsPanel({
                       ? ` · просрочено ${project.overdueCount}`
                       : ''}
                   </p>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border">
+                    <div
+                      className="h-full rounded-full bg-accent"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
                 </div>
                 <Button
                   type="button"
+                  size="sm"
                   variant="secondary"
                   onClick={() => setSelectedId(project.id)}
                 >

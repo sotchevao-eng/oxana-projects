@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { OxanaMascot } from '../../../components/admin/oxana/OxanaMascot'
 import { Button } from '../../../components/Button'
 import { DataStatus } from '../../../components/DataStatus'
@@ -17,7 +17,7 @@ import { OxanaOverviewPanel } from './OxanaOverviewPanel'
 import { OxanaProjectsPanel } from './OxanaProjectsPanel'
 import { OxanaSettingsPanel } from './OxanaSettingsPanel'
 import { OxanaTasksPanel } from './OxanaTasksPanel'
-import { OXANA_FIELD_CLASS, type OxanaFocus, type OxanaTabId } from './oxanaUi'
+import { type OxanaFocus, type OxanaTabId } from './oxanaUi'
 
 const tabs: Array<{ id: OxanaTabId; label: string }> = [
   { id: 'overview', label: 'Обзор' },
@@ -62,23 +62,24 @@ export function AdminOxanaPage() {
   }, [])
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold tracking-[0.14em] text-muted uppercase">
             OXANA AI
           </p>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight text-ink md:text-2xl">
+          <h1 className="mt-0.5 text-lg font-semibold tracking-tight text-ink md:text-xl">
             ОКСИ
           </h1>
-          <p className="mt-1 max-w-xl text-sm text-muted">
+          <p className="mt-0.5 max-w-xl text-xs leading-snug text-muted sm:text-sm">
             Личный контур на российской инфраструктуре. Telegram и MAX подключим
             позже.
           </p>
         </div>
-        {focus.tab === 'overview' ? null : (
-          <OxanaMascot className="w-full max-w-[18rem] sm:max-w-[20rem]" />
-        )}
+        <OxanaMascot
+          compact
+          className="w-[5.5rem] shrink-0 sm:w-32"
+        />
       </div>
 
       {!isOxanaApiConfigured() ? (
@@ -86,7 +87,7 @@ export function AdminOxanaPage() {
       ) : (
         <>
           <div
-            className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+            className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5"
             role="tablist"
             aria-label="Разделы ОКСИ"
           >
@@ -97,7 +98,7 @@ export function AdminOxanaPage() {
                 role="tab"
                 aria-selected={focus.tab === item.id}
                 onClick={() => setFocus({ tab: item.id })}
-                className={`shrink-0 rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-xs transition-colors sm:text-sm ${
                   focus.tab === item.id
                     ? 'border-accent/50 bg-soft font-medium text-ink'
                     : 'border-border text-muted hover:bg-soft/80 hover:text-ink'
@@ -179,6 +180,11 @@ function ChatPanel({ token }: { token: string }) {
   const [turns, setTurns] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>(
     [],
   )
+  const bottomRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: 'end' })
+  }, [turns, sending])
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
@@ -203,43 +209,83 @@ function ChatPanel({ token }: { token: string }) {
   }
 
   return (
-    <section className="rounded-xl border border-border bg-surface p-4 sm:p-5">
-      <h2 className="text-sm font-semibold text-ink">Чат</h2>
-      <p className="mt-1 text-sm text-muted">
-        Ответ приходит из GigaChat. При ошибке текст модели не подставляется.
-      </p>
-      {turns.length ? (
-        <ul className="mt-4 space-y-2">
-          {turns.map((turn, index) => (
-            <li
-              key={`${turn.role}-${index}`}
-              className="rounded-2xl border border-border bg-soft px-4 py-3 text-sm text-ink"
-            >
-              <p className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
-                {turn.role === 'user' ? 'Вы' : 'ОКСИ'}
-              </p>
-              <p className="mt-1 whitespace-pre-wrap">{turn.text}</p>
-            </li>
-          ))}
-        </ul>
+    <section className="flex h-[min(38rem,calc(100dvh-11rem))] min-h-[26rem] flex-col overflow-hidden rounded-[1.25rem] border border-border bg-surface">
+      <div className="border-b border-border px-4 py-2.5">
+        <h2 className="text-sm font-semibold text-ink">Чат</h2>
+        <p className="mt-0.5 text-xs text-muted">
+          Ответ приходит из GigaChat. При ошибке текст модели не подставляется.
+        </p>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-3 sm:px-4">
+        {turns.length === 0 && !sending ? (
+          <p className="m-auto max-w-xs text-center text-sm text-muted">
+            Напишите ОКСИ — диалог появится здесь.
+          </p>
+        ) : (
+          turns.map((turn, index) => {
+            const mine = turn.role === 'user'
+            return (
+              <div
+                key={`${turn.role}-${index}`}
+                className={`flex w-[72%] max-w-[72%] flex-col ${
+                  mine ? 'ml-auto items-end' : 'mr-auto items-start'
+                }`}
+              >
+                <p className="mb-0.5 px-1 text-[10px] font-medium tracking-[0.06em] text-muted uppercase">
+                  {mine ? 'Вы' : 'ОКСИ'}
+                </p>
+                <div
+                  className={`whitespace-pre-wrap px-3 py-2 text-sm leading-relaxed text-ink ${
+                    mine
+                      ? 'rounded-2xl rounded-tr-md bg-accent/20'
+                      : 'rounded-2xl rounded-tl-md bg-soft'
+                  }`}
+                >
+                  {turn.text}
+                </div>
+              </div>
+            )
+          })
+        )}
+        {sending ? (
+          <div className="mr-auto flex w-[72%] max-w-[72%] flex-col items-start">
+            <p className="mb-0.5 px-1 text-[10px] font-medium tracking-[0.06em] text-muted uppercase">
+              ОКСИ
+            </p>
+            <div className="rounded-2xl rounded-tl-md bg-soft px-3 py-2 text-sm text-muted">
+              печатает...
+            </div>
+          </div>
+        ) : null}
+        <div ref={bottomRef} />
+      </div>
+      {notice ? (
+        <p
+          className="mx-3 mb-2 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-ink sm:mx-4"
+          role="status"
+        >
+          {notice}
+        </p>
       ) : null}
-      <form className="mt-4 space-y-3" onSubmit={(event) => void handleSubmit(event)}>
+      <form
+        className="flex items-end gap-2 border-t border-border bg-bg/40 px-3 py-2.5 sm:px-4"
+        onSubmit={(event) => void handleSubmit(event)}
+      >
         <textarea
-          className={`${OXANA_FIELD_CLASS} min-h-28 resize-y`}
+          className="min-h-11 max-h-32 flex-1 resize-none rounded-xl border border-border bg-bg px-3 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent/50"
           value={message}
           onChange={(event) => setMessage(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+            }
+          }}
           placeholder="Напишите ОКСИ"
           maxLength={4000}
+          rows={1}
         />
-        {notice ? (
-          <p
-            className="rounded-2xl border border-border bg-soft px-4 py-3 text-sm text-muted"
-            role="status"
-          >
-            {notice}
-          </p>
-        ) : null}
-        <Button type="submit" disabled={sending || !message.trim()}>
+        <Button type="submit" size="sm" disabled={sending || !message.trim()}>
           {sending ? 'Отправка...' : 'Отправить'}
         </Button>
       </form>

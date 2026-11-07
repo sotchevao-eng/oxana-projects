@@ -23,8 +23,14 @@ import {
   zonedDate,
   zonedParts,
 } from '../../../utils/oxanaTime'
-import { isArchivedTask, OXANA_FIELD_CLASS } from './oxanaUi'
-import type { OxanaFocus } from './oxanaUi'
+import {
+  isArchivedTask,
+  OXANA_CHIP_ACTIVE_CLASS,
+  OXANA_CHIP_CLASS,
+  OXANA_FIELD_CLASS,
+  OXANA_TEXTAREA_CLASS,
+  type OxanaFocus,
+} from './oxanaUi'
 
 type ViewMode = 'month' | 'week' | 'day'
 
@@ -239,9 +245,9 @@ export function OxanaCalendarPanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <form
-        className="space-y-3 rounded-xl border border-border bg-surface p-4 sm:p-5"
+        className="space-y-2.5 rounded-[1.125rem] border border-border bg-surface p-4"
         onSubmit={(event) => void handleCreate(event)}
       >
         <h2 className="text-sm font-semibold text-ink">Новое событие</h2>
@@ -253,28 +259,28 @@ export function OxanaCalendarPanel({
           required
         />
         <textarea
-          className={`${OXANA_FIELD_CLASS} min-h-20 resize-y`}
+          className={OXANA_TEXTAREA_CLASS}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Описание, если нужно"
         />
-        <label className="block space-y-1.5">
-          <span className="text-xs text-muted">Проект</span>
-          <select
-            className={OXANA_FIELD_CLASS}
-            value={projectId}
-            onChange={(event) => setProjectId(event.target.value)}
-          >
-            <option value="">Без проекта</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block space-y-1.5">
+        <div className="grid gap-2.5 sm:grid-cols-3">
+          <label className="block space-y-1">
+            <span className="text-xs text-muted">Проект</span>
+            <select
+              className={OXANA_FIELD_CLASS}
+              value={projectId}
+              onChange={(event) => setProjectId(event.target.value)}
+            >
+              <option value="">Без проекта</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1">
             <span className="text-xs text-muted">Начало</span>
             <input
               type="datetime-local"
@@ -284,7 +290,7 @@ export function OxanaCalendarPanel({
               required
             />
           </label>
-          <label className="block space-y-1.5">
+          <label className="block space-y-1">
             <span className="text-xs text-muted">Окончание</span>
             <input
               type="datetime-local"
@@ -294,46 +300,44 @@ export function OxanaCalendarPanel({
             />
           </label>
         </div>
-        <Button type="submit" disabled={saving || !title.trim()}>
+        <Button type="submit" size="sm" disabled={saving || !title.trim()}>
           {saving ? 'Сохранение...' : 'Создать событие'}
         </Button>
       </form>
 
-      <section className="rounded-xl border border-border bg-surface p-4 sm:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <section className="rounded-[1.125rem] border border-border bg-surface p-4">
+        <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-ink">Календарь ОКСИ</h2>
-            <p className="mt-1 text-sm text-muted">
+            <p className="mt-0.5 text-xs text-muted">
               {formatOxanaMonthTitle(cursor, timezone)} · {timezone}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {(['month', 'week', 'day'] as ViewMode[]).map((item) => (
               <button
                 key={item}
                 type="button"
                 onClick={() => setMode(item)}
-                className={`rounded-full border px-3 py-1 text-xs ${
-                  mode === item
-                    ? 'border-accent/50 bg-soft text-ink'
-                    : 'border-border text-muted'
-                }`}
+                className={mode === item ? OXANA_CHIP_ACTIVE_CLASS : OXANA_CHIP_CLASS}
               >
                 {item === 'month' ? 'Месяц' : item === 'week' ? 'Неделя' : 'День'}
               </button>
             ))}
             <Button
               type="button"
+              size="sm"
               variant="secondary"
               onClick={() => shiftCursor(cursor, mode, -1, timezone, setCursor)}
             >
               Назад
             </Button>
-            <Button type="button" variant="secondary" onClick={() => setCursor(new Date())}>
+            <Button type="button" size="sm" variant="secondary" onClick={() => setCursor(new Date())}>
               Сегодня
             </Button>
             <Button
               type="button"
+              size="sm"
               variant="secondary"
               onClick={() => shiftCursor(cursor, mode, 1, timezone, setCursor)}
             >
@@ -342,17 +346,17 @@ export function OxanaCalendarPanel({
           </div>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-3">
           <DataStatus loading={loading} error={error} loadingText="Загрузка календаря..." />
           {error ? (
-            <Button type="button" variant="secondary" onClick={() => void reload()}>
+            <Button type="button" size="sm" variant="secondary" onClick={() => void reload()}>
               Повторить
             </Button>
           ) : null}
         </div>
 
         <div
-          className={`mt-4 grid gap-2 ${
+          className={`mt-3 grid gap-1.5 ${
             mode === 'day' ? 'grid-cols-1' : 'grid-cols-7'
           }`}
         >
@@ -375,7 +379,7 @@ export function OxanaCalendarPanel({
                 key={day.toISOString()}
                 type="button"
                 onClick={() => setCursor(day)}
-                className={`min-h-24 rounded-lg border px-2 py-2 text-left ${
+                className={`min-h-[4.5rem] rounded-xl border px-1.5 py-1.5 text-left ${
                   selected
                     ? 'border-accent/50 bg-soft'
                     : 'border-border bg-bg/40'
@@ -399,7 +403,9 @@ export function OxanaCalendarPanel({
                     </span>
                   ))}
                   {dayItems.length > (mode === 'month' ? 3 : 8) ? (
-                    <p className="text-[11px] text-muted">+{dayItems.length - 3}</p>
+                    <p className="text-[11px] text-muted">
+                      +{dayItems.length - (mode === 'month' ? 3 : 8)}
+                    </p>
                   ) : null}
                 </div>
               </button>
@@ -407,7 +413,7 @@ export function OxanaCalendarPanel({
           })}
         </div>
 
-        <div className="mt-4 space-y-2">
+        <div className="mt-3 space-y-1.5">
           <h3 className="text-sm font-semibold text-ink">
             {formatOxanaDate(cursor.toISOString(), timezone, 'date')}
           </h3>
@@ -418,11 +424,11 @@ export function OxanaCalendarPanel({
             <button
               key={`${item.kind}-${item.id}`}
               type="button"
-              className={`block w-full rounded-lg border px-3 py-2 text-left ${itemClass(item)}`}
+              className={`block w-full rounded-xl border px-3 py-2 text-left ${itemClass(item)}`}
               onClick={() => openItem(item)}
             >
-              <p className="text-sm font-medium">{item.title}</p>
-              <p className="mt-1 text-xs opacity-80">
+              <p className="truncate text-sm font-medium">{item.title}</p>
+              <p className="mt-0.5 text-xs opacity-80">
                 {item.kind === 'task' ? 'Задача' : 'Событие'} ·{' '}
                 {formatOxanaDate(item.at, timezone, dateFormat)}
               </p>
@@ -432,7 +438,7 @@ export function OxanaCalendarPanel({
       </section>
 
       {selectedEvent ? (
-        <section className="space-y-3 rounded-xl border border-border bg-surface p-4 sm:p-5">
+        <section className="space-y-2.5 rounded-[1.125rem] border border-border bg-surface p-4">
           <h3 className="text-sm font-semibold text-ink">Карточка события</h3>
           <input
             className={OXANA_FIELD_CLASS}
@@ -440,7 +446,7 @@ export function OxanaCalendarPanel({
             onChange={(event) => setEditTitle(event.target.value)}
           />
           <textarea
-            className={`${OXANA_FIELD_CLASS} min-h-20 resize-y`}
+            className={OXANA_TEXTAREA_CLASS}
             value={editDescription}
             onChange={(event) => setEditDescription(event.target.value)}
           />
@@ -474,14 +480,15 @@ export function OxanaCalendarPanel({
             />
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={() => void handleSaveEvent()}>
+            <Button type="button" size="sm" onClick={() => void handleSaveEvent()}>
               Сохранить
             </Button>
-            <Button type="button" variant="ghost" onClick={() => setDeleteOpen(true)}>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setDeleteOpen(true)}>
               Удалить
             </Button>
             <Button
               type="button"
+              size="sm"
               variant="secondary"
               onClick={() => setSelectedEvent(null)}
             >
@@ -505,12 +512,12 @@ export function OxanaCalendarPanel({
 
 function itemClass(item: CalendarItem): string {
   if (item.overdue) {
-    return 'border-red-300/70 bg-red-50 text-red-800'
+    return 'border-red-400/40 bg-red-500/10 text-ink'
   }
   if (item.kind === 'event') {
-    return 'border-violet-300/70 bg-violet-50 text-violet-900'
+    return 'border-violet-400/40 bg-violet-500/10 text-ink'
   }
-  return 'border-sky-300/70 bg-sky-50 text-sky-900'
+  return 'border-sky-400/40 bg-sky-500/10 text-ink'
 }
 
 function calendarDays(cursor: Date, mode: ViewMode, timeZone: string): Date[] {

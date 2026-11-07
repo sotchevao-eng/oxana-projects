@@ -21,7 +21,9 @@ import { formatOxanaDate, fromDateTimeLocal, toDateTimeLocal } from '../../../ut
 import type { OxanaFocus } from './oxanaUi'
 import {
   isArchivedTask,
+  OXANA_CHIP_CLASS,
   OXANA_FIELD_CLASS,
+  OXANA_TEXTAREA_CLASS,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
 } from './oxanaUi'
@@ -250,9 +252,9 @@ export function OxanaTasksPanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <form
-        className="space-y-3 rounded-xl border border-border bg-surface p-4 sm:p-5"
+        className="space-y-2.5 rounded-[1.125rem] border border-border bg-surface p-4"
         onSubmit={(event) => void handleCreate(event)}
       >
         <h2 className="text-sm font-semibold text-ink">Новая задача</h2>
@@ -264,60 +266,62 @@ export function OxanaTasksPanel({
           required
         />
         <textarea
-          className={`${OXANA_FIELD_CLASS} min-h-20 resize-y`}
+          className={OXANA_TEXTAREA_CLASS}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Описание, если нужно"
         />
-        <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-muted">Проект</span>
-          <select
-            className={OXANA_FIELD_CLASS}
-            value={projectId}
-            onChange={(event) => setProjectId(event.target.value)}
-          >
-            <option value="">Личная задача — без проекта</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-muted">Приоритет</span>
-          <select
-            className={OXANA_FIELD_CLASS}
-            value={priority}
-            onChange={(event) =>
-              setPriority(event.target.value as OxanaTaskPriority)
-            }
-          >
-            {(Object.keys(TASK_PRIORITY_LABELS) as OxanaTaskPriority[]).map(
-              (item) => (
-                <option key={item} value={item}>
-                  {TASK_PRIORITY_LABELS[item]}
+        <div className="grid gap-2.5 sm:grid-cols-3">
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-muted">Проект</span>
+            <select
+              className={OXANA_FIELD_CLASS}
+              value={projectId}
+              onChange={(event) => setProjectId(event.target.value)}
+            >
+              <option value="">Личная задача — без проекта</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.title}
                 </option>
-              ),
-            )}
-          </select>
-        </label>
-        <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-muted">Срок</span>
-          <input
-            type="datetime-local"
-            className={OXANA_FIELD_CLASS}
-            value={dueAt}
-            onChange={(event) => setDueAt(event.target.value)}
-          />
-        </label>
-        <Button type="submit" disabled={saving || !title.trim()}>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-muted">Приоритет</span>
+            <select
+              className={OXANA_FIELD_CLASS}
+              value={priority}
+              onChange={(event) =>
+                setPriority(event.target.value as OxanaTaskPriority)
+              }
+            >
+              {(Object.keys(TASK_PRIORITY_LABELS) as OxanaTaskPriority[]).map(
+                (item) => (
+                  <option key={item} value={item}>
+                    {TASK_PRIORITY_LABELS[item]}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-muted">Срок</span>
+            <input
+              type="datetime-local"
+              className={OXANA_FIELD_CLASS}
+              value={dueAt}
+              onChange={(event) => setDueAt(event.target.value)}
+            />
+          </label>
+        </div>
+        <Button type="submit" size="sm" disabled={saving || !title.trim()}>
           {saving ? 'Сохранение...' : 'Создать задачу'}
         </Button>
       </form>
 
-      <section className="space-y-3 rounded-xl border border-border bg-surface p-4">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <section className="space-y-2.5 rounded-[1.125rem] border border-border bg-surface p-4">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
           <input
             className={OXANA_FIELD_CLASS}
             value={query}
@@ -391,14 +395,14 @@ export function OxanaTasksPanel({
 
       <DataStatus loading={loading} error={error} loadingText="Загрузка задач..." />
       {error ? (
-        <Button type="button" variant="secondary" onClick={() => void reload()}>
+        <Button type="button" size="sm" variant="secondary" onClick={() => void reload()}>
           Повторить
         </Button>
       ) : null}
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {!loading && visible.length === 0 && !error ? (
-          <p className="rounded-xl border border-border bg-surface px-4 py-6 text-sm text-muted">
+          <p className="rounded-[1.125rem] border border-border bg-surface px-4 py-4 text-sm text-muted">
             Задач по выбранным фильтрам нет.
           </p>
         ) : null}
@@ -412,19 +416,19 @@ export function OxanaTasksPanel({
             <article
               key={task.id}
               id={`oxana-task-${task.id}`}
-              className={`rounded-xl border bg-surface px-4 py-4 ${
-                focused ? 'border-accent/60' : overdue ? 'border-red-300/70' : 'border-border'
+              className={`rounded-[1.125rem] border bg-surface px-4 py-3 ${
+                focused ? 'border-accent/60' : overdue ? 'border-red-400/50' : 'border-border'
               }`}
             >
               {editingId === task.id ? (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   <input
                     className={OXANA_FIELD_CLASS}
                     value={editTitle}
                     onChange={(event) => setEditTitle(event.target.value)}
                   />
                   <textarea
-                    className={`${OXANA_FIELD_CLASS} min-h-20 resize-y`}
+                    className={OXANA_TEXTAREA_CLASS}
                     value={editDescription}
                     onChange={(event) => setEditDescription(event.target.value)}
                   />
@@ -452,6 +456,7 @@ export function OxanaTasksPanel({
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
+                      size="sm"
                       onClick={() => void handleSaveEdit(task.id)}
                       disabled={!editTitle.trim()}
                     >
@@ -459,6 +464,7 @@ export function OxanaTasksPanel({
                     </Button>
                     <Button
                       type="button"
+                      size="sm"
                       variant="secondary"
                       onClick={() => setEditingId(null)}
                     >
@@ -467,13 +473,13 @@ export function OxanaTasksPanel({
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
-                    <p className="font-medium text-ink">{task.title}</p>
+                    <p className="truncate font-medium text-ink">{task.title}</p>
                     {task.description ? (
-                      <p className="mt-1 text-sm text-muted">{task.description}</p>
+                      <p className="mt-0.5 line-clamp-2 text-sm text-muted">{task.description}</p>
                     ) : null}
-                    <p className="mt-2 text-xs text-muted">
+                    <p className="mt-1.5 text-xs text-muted">
                       {task.projectTitle || 'Личная задача'}
                       {` · ${TASK_STATUS_LABELS[task.status]}`}
                       {` · ${TASK_PRIORITY_LABELS[task.priority || 'normal']}`}
@@ -483,11 +489,12 @@ export function OxanaTasksPanel({
                       {overdue ? ' · просрочена' : ''}
                       {task.archivedAt ? ' · в архиве' : ''}
                     </p>
-                    <label className="mt-3 block max-w-xs space-y-1">
-                      <span className="text-xs text-muted">Проект</span>
+                    <label className="mt-1.5 block max-w-xs">
+                      <span className="sr-only">Проект</span>
                       <select
                         className={OXANA_FIELD_CLASS}
                         value={task.projectId ?? ''}
+                        aria-label="Проект"
                         onChange={(event) =>
                           void handleProjectChange(task.id, event.target.value)
                         }
@@ -520,7 +527,7 @@ export function OxanaTasksPanel({
                           type="button"
                           disabled={task.status === status}
                           onClick={() => void handleStatus(task.id, status)}
-                          className="rounded-full border border-border px-3 py-1 text-xs text-muted transition-colors hover:bg-soft hover:text-ink disabled:opacity-40"
+                          className={OXANA_CHIP_CLASS}
                         >
                           {TASK_STATUS_LABELS[status]}
                         </button>
@@ -528,6 +535,7 @@ export function OxanaTasksPanel({
                     )}
                     <Button
                       type="button"
+                      size="sm"
                       variant="secondary"
                       onClick={() => void handleArchive(task)}
                     >
@@ -535,6 +543,7 @@ export function OxanaTasksPanel({
                     </Button>
                     <Button
                       type="button"
+                      size="sm"
                       variant="secondary"
                       onClick={() => startEdit(task)}
                     >
@@ -542,6 +551,7 @@ export function OxanaTasksPanel({
                     </Button>
                     <Button
                       type="button"
+                      size="sm"
                       variant="ghost"
                       onClick={() => setDeleteId(task.id)}
                     >
