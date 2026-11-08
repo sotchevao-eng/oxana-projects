@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { oxanaAiProvider, type OxanaAiProvider } from './aiAdapter.js'
 import { runOxanaCabinetChat } from './aiOrchestrator.js'
+import { parseOxanaChatHistory } from './chatHistory.js'
 import { createRequireOxanaOwner } from './auth.js'
 import { getOxanaReminderSchedulerStatus } from './reminderScheduler.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from './tokenVerifier.js'
@@ -566,16 +567,18 @@ export function createOxanaRouter(
 
   app.post('/chat', async (c) => {
     const body = await c.req.json().catch(() => null)
-    const message =
-      body && typeof body === 'object'
-        ? String((body as Record<string, unknown>).message ?? '').trim()
-        : ''
+    const record =
+      body && typeof body === 'object' && !Array.isArray(body)
+        ? (body as Record<string, unknown>)
+        : null
+    const message = String(record?.message ?? '').trim()
     if (!message) {
       return c.json({ ok: false, error: 'message_required' }, 400)
     }
     if (message.length > 4000) {
       return c.json({ ok: false, error: 'message_too_long' }, 400)
     }
+    const history = parseOxanaChatHistory(record?.history)
 
     try {
       const { userId, workspaceId } = await resolveWorkspace(
@@ -588,6 +591,7 @@ export function createOxanaRouter(
         userId,
         workspaceId,
         message,
+        history,
       })
       return c.json({
         ok: true,
