@@ -12,6 +12,7 @@ import {
   signOut,
   subscribeToAuthChanges,
 } from '../services/authService'
+import { clearAllOxanaChatSessions } from '../utils/oxanaChatSession'
 
 interface AuthContextValue {
   session: Session | null
@@ -67,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     const result = await signOut()
     if (result.ok) {
+      clearAllOxanaChatSessions()
       setSession(null)
     }
     return { ok: result.ok, error: result.error }

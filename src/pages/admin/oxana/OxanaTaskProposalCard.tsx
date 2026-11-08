@@ -33,6 +33,7 @@ interface Props {
   onStatus: (status: OxanaProposalCardStatus) => void
   onError: (error: string | null) => void
   onCreated: (task: OxanaTask) => void
+  active?: boolean
 }
 
 export function OxanaTaskProposalCard({
@@ -45,6 +46,7 @@ export function OxanaTaskProposalCard({
   onStatus,
   onError,
   onCreated,
+  active = true,
 }: Props) {
   const locked = isProposalCardLocked(status)
   const busyRef = useRef(false)
@@ -73,12 +75,15 @@ export function OxanaTaskProposalCard({
   ])
 
   useEffect(() => {
+    if (!active) {
+      return
+    }
     void fetchOxanaProjects(token).then((result) => {
       if (result.ok) {
         setProjects(result.data.projects)
       }
     })
-  }, [token])
+  }, [active, token])
 
   const confirm = async () => {
     if (busyRef.current || status !== 'open' || !title.trim()) {

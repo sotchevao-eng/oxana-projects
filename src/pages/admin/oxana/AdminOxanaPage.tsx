@@ -8,7 +8,13 @@ import {
   isOxanaApiConfigured,
   sendOxanaChat,
 } from '../../../services/oxanaService'
-import type { OxanaChatProposal, OxanaOwnerSettings } from '../../../types/oxana'
+import type { OxanaOwnerSettings } from '../../../types/oxana'
+import {
+  clearOxanaChatSession,
+  loadOxanaChatSession,
+  saveOxanaChatSession,
+  type OxanaChatTurn,
+} from '../../../utils/oxanaChatSession'
 import { oxanaErrorMessage } from '../../../utils/oxanaErrors'
 import { DEFAULT_OXANA_TIMEZONE } from '../../../utils/oxanaTime'
 import { OxanaCalendarPanel } from './OxanaCalendarPanel'
@@ -47,6 +53,8 @@ const DEFAULT_SETTINGS: OxanaOwnerSettings = {
 export function AdminOxanaPage() {
   const { session, loading: authLoading } = useAuth()
   const token = session?.access_token ?? ''
+  const userId = session?.user?.id ?? ''
+  const previousUserId = useRef(userId)
   const [focus, setFocus] = useState<OxanaFocus>({ tab: 'overview' })
   const [settings, setSettings] = useState<OxanaOwnerSettings>(DEFAULT_SETTINGS)
   const [unreadCount, setUnreadCount] = useState(0)
@@ -60,6 +68,14 @@ export function AdminOxanaPage() {
       }
     })
   }, [authLoading, token])
+
+  useEffect(() => {
+    const previous = previousUserId.current
+    if (previous && previous !== userId) {
+      clearOxanaChatSession(previous)
+    }
+    previousUserId.current = userId
+  }, [userId])
 
   const onNavigate = useCallback((next: OxanaFocus) => {
     setFocus(next)
@@ -124,13 +140,18 @@ export function AdminOxanaPage() {
               onNavigate={onNavigate}
             />
           ) : null}
-          {focus.tab === 'chat' ? (
+          <div
+            className={focus.tab === 'chat' ? undefined : 'hidden'}
+            hidden={focus.tab !== 'chat'}
+          >
             <ChatPanel
               token={token}
+              userId={userId}
               timezone={settings.timezone}
+              active={focus.tab === 'chat'}
               onTaskCreated={() => setCabinetEpoch((value) => value + 1)}
             />
-          ) : null}
+          </div>
           {focus.tab === 'tasks' ? (
             <OxanaTasksPanel
               key={cabinetEpoch}
@@ -185,17 +206,6 @@ export function AdminOxanaPage() {
   )
 }
 
-type ChatTurn =
-  | { role: 'user'; text: string }
-  | {
-      role: 'assistant'
-      text: string
-      proposal?: OxanaChatProposal
-      proposalStatus?: 'open' | 'submitting' | 'created' | 'updated' | 'cancelled'
-      proposalError?: string | null
-      idempotencyKey?: string
-    }
-
 function newIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID()
@@ -214,26 +224,58 @@ function newIdempotencyKey(): string {
 
 function ChatPanel({
   token,
+  userId,
   timezone,
+  active,
   onTaskCreated,
 }: {
   token: string
+  userId: string
   timezone: string
+  active: boolean
   onTaskCreated: () => void
 }) {
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(
+    () => loadOxanaChatSession(userId).message,
+  )
   const [sending, setSending] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  const [turns, setTurns] = useState<ChatTurn[]>([])
+  const [turns, setTurns] = useState<OxanaChatTurn[]>(
+    () => loadOxanaChatSession(userId).turns,
+  )
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const skipNextSave = useRef(true)
 
   useEffect(() => {
+    skipNextSave.current = true
+    const loaded = loadOxanaChatSession(userId)
+    setTurns(loaded.turns)
+    setMessage(loaded.message)
+    setSending(false)
+    setNotice(null)
+  }, [userId])
+
+  useEffect(() => {
+    if (skipNextSave.current) {
+      skipNextSave.current = false
+      return
+    }
+    if (!userId) {
+      return
+    }
+    saveOxanaChatSession(userId, { turns, message })
+  }, [userId, turns, message])
+
+  useEffect(() => {
+    if (!active) {
+      return
+    }
     bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [turns, sending])
+  }, [turns, sending, active])
 
   const updateAssistant = (
     index: number,
-    patch: Partial<Extract<ChatTurn, { role: 'assistant' }>>,
+    patch: Partial<Extract<OxanaChatTurn, { role: 'assistant' }>>,
   ) => {
     setTurns((current) =>
       current.map((turn, itemIndex) =>
@@ -329,6 +371,7 @@ function ChatPanel({
                     key={turn.idempotencyKey}
                     token={token}
                     timezone={timezone}
+                    active={active}
                     proposal={turn.proposal}
                     status={turn.proposalStatus}
                     error={turn.proposalError ?? null}
