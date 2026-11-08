@@ -1,15 +1,19 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  OXANA_CHAT_HISTORY_ITEM_MAX,
+  OXANA_CHAT_HISTORY_LIMIT,
   OXANA_CHAT_SESSION_MAX_AGE_MS,
   clearAllOxanaChatSessions,
   clearOxanaChatSession,
   loadOxanaChatSession,
   normalizeProposalStatus,
+  oxanaChatHistoryForRequest,
   oxanaChatSessionKey,
   parseOxanaChatSession,
   saveOxanaChatSession,
   type OxanaChatSessionStorage,
+  type OxanaChatTurn,
 } from './oxanaChatSession.ts'
 
 class MemoryStorage implements OxanaChatSessionStorage {
@@ -241,4 +245,44 @@ test('stored payload has no tokens or secrets', () => {
   const parsed = JSON.parse(raw) as Record<string, unknown>
   assert.equal(parsed.userId, USER_A)
   assert.equal(typeof parsed.savedAt, 'number')
+})
+
+test('chat history for request is text-only and omits cards, ids and secrets', () => {
+  const turns: OxanaChatTurn[] = [
+    {
+      role: 'user',
+      text: 'ОКСИ, найди существующую задачу «Тест создания задачи ОКСИ» и покажи её текущий срок и приоритет. Ничего не изменяй',
+    },
+    updateTurn(),
+    {
+      role: 'assistant',
+      text: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aaaa.bbbb',
+    },
+  ]
+  const history = oxanaChatHistoryForRequest(turns)
+  assert.deepEqual(
+    history.map((item) => item.role),
+    ['user', 'assistant'],
+  )
+  assert.equal(history[0]?.text.includes('Тест создания задачи ОКСИ'), true)
+  assert.equal(history[1]?.text, 'Предложение изменений подготовлено.')
+  assert.equal(JSON.stringify(history).includes('proposal'), false)
+  assert.equal(JSON.stringify(history).includes('taskId'), false)
+  assert.equal(JSON.stringify(history).includes('idempotencyKey'), false)
+  assert.equal(JSON.stringify(history).includes('Bearer'), false)
+  assert.equal(JSON.stringify(history).includes(TASK_ID), false)
+})
+
+test('chat history for request keeps the last eight short turns', () => {
+  const turns: OxanaChatTurn[] = Array.from({ length: 12 }, (_, index) => ({
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    text: `реплика ${index} ${'я'.repeat(600)}`,
+  })) as OxanaChatTurn[]
+  const history = oxanaChatHistoryForRequest(turns)
+  assert.equal(history.length, OXANA_CHAT_HISTORY_LIMIT)
+  assert.equal(history[0]?.text.includes('реплика 4'), true)
+  assert.equal(
+    history.every((item) => item.text.length <= OXANA_CHAT_HISTORY_ITEM_MAX),
+    true,
+  )
 })

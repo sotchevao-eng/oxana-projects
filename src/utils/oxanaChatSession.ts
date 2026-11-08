@@ -79,6 +79,49 @@ export function oxanaChatSessionKey(userId: string): string {
   return `${OXANA_CHAT_SESSION_PREFIX}${userId}`
 }
 
+export const OXANA_CHAT_HISTORY_LIMIT = 8
+export const OXANA_CHAT_HISTORY_ITEM_MAX = 500
+export const OXANA_CHAT_HISTORY_TOTAL_MAX = 4000
+
+export interface OxanaChatHistoryItem {
+  role: 'user' | 'assistant'
+  text: string
+}
+
+const JWT_TEXT = /\beyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]+\./
+const BEARER_TEXT = /bearer\s+[a-z0-9._\-]+/i
+
+export function oxanaChatHistoryForRequest(
+  turns: readonly OxanaChatTurn[],
+): OxanaChatHistoryItem[] {
+  const items: OxanaChatHistoryItem[] = []
+  for (const turn of turns) {
+    if (turn.role !== 'user' && turn.role !== 'assistant') {
+      continue
+    }
+    const text = turn.text.trim().slice(0, OXANA_CHAT_HISTORY_ITEM_MAX)
+    if (!text || JWT_TEXT.test(text) || BEARER_TEXT.test(text)) {
+      continue
+    }
+    items.push({ role: turn.role, text })
+  }
+  const recent = items.slice(-OXANA_CHAT_HISTORY_LIMIT)
+  const kept: OxanaChatHistoryItem[] = []
+  let total = 0
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    const item = recent[index]
+    if (!item) {
+      continue
+    }
+    if (total + item.text.length > OXANA_CHAT_HISTORY_TOTAL_MAX) {
+      continue
+    }
+    kept.push(item)
+    total += item.text.length
+  }
+  return kept.reverse()
+}
+
 function isUuid(value: string): boolean {
   return UUID_RE.test(value)
 }

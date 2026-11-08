@@ -12,6 +12,7 @@ import type { OxanaOwnerSettings } from '../../../types/oxana'
 import {
   clearOxanaChatSession,
   loadOxanaChatSession,
+  oxanaChatHistoryForRequest,
   saveOxanaChatSession,
   type OxanaChatTurn,
 } from '../../../utils/oxanaChatSession'
@@ -315,7 +316,11 @@ function ChatPanel({
       ),
       { role: 'user', text, sentAt },
     ])
-    const result = await sendOxanaChat(token, text)
+    const result = await sendOxanaChat(
+      token,
+      text,
+      oxanaChatHistoryForRequest(turns),
+    )
     const receivedAt = new Date().toISOString()
     setSending(false)
     if (result.ok) {

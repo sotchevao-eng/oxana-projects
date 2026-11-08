@@ -325,7 +325,16 @@ export async function fetchOxanaOverview(token: string) {
   })
 }
 
-export async function sendOxanaChat(token: string, message: string) {
+export async function sendOxanaChat(
+  token: string,
+  message: string,
+  history?: Array<{ role: 'user' | 'assistant'; text: string }>,
+) {
+  const body: { message: string; history?: Array<{ role: 'user' | 'assistant'; text: string }> } =
+    { message }
+  if (history && history.length > 0) {
+    body.history = history
+  }
   return oxanaRequest<{
     ok: true
     reply: string
@@ -334,6 +343,6 @@ export async function sendOxanaChat(token: string, message: string) {
   }>('/api/oxana/chat', {
     token,
     method: 'POST',
-    body: { message },
+    body,
   })
 }
