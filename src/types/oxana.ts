@@ -132,6 +132,64 @@ export interface OxanaTaskProposal {
   projectTitle: string | null
 }
 
+export type OxanaUpdateField =
+  | 'title'
+  | 'description'
+  | 'dueAt'
+  | 'priority'
+  | 'status'
+
+export interface OxanaTaskSnapshot {
+  title: string
+  description: string | null
+  dueAt: string | null
+  dueLabel: string | null
+  priority: OxanaTaskPriority
+  status: OxanaTaskStatus
+}
+
+export interface OxanaUpdateTaskIntend {
+  title?: string
+  description?: string | null
+  dueAt?: string | null
+  priority?: OxanaTaskPriority
+  status?: Extract<OxanaTaskStatus, 'open' | 'in_progress'>
+  projectId?: string | null
+}
+
+export interface OxanaUpdateTaskProposal {
+  type: 'update_task'
+  taskId: string
+  updatedAt: string
+  fields: OxanaUpdateField[]
+  current: OxanaTaskSnapshot
+  next: OxanaTaskSnapshot
+  dueNeedsClarification?: boolean
+  dueAmbiguousWeekday?: string
+}
+
+export interface OxanaChooseTaskProposal {
+  type: 'choose_task'
+  query: string
+  matches: Array<{
+    id: string
+    title: string
+    dueAt: string | null
+    dueLabel: string | null
+    priority: OxanaTaskPriority
+    status: OxanaTaskStatus
+    updatedAt: string
+  }>
+  intend: OxanaUpdateTaskIntend
+  dueNeedsClarification?: boolean
+  dueAmbiguousWeekday?: string
+}
+
+export type OxanaChatProposal =
+  | OxanaTaskProposal
+  | OxanaUpdateTaskProposal
+  | OxanaChooseTaskProposal
+
 export interface OxanaApiError {
   ok: false
   error: string

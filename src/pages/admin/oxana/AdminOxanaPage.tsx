@@ -8,7 +8,7 @@ import {
   isOxanaApiConfigured,
   sendOxanaChat,
 } from '../../../services/oxanaService'
-import type { OxanaOwnerSettings, OxanaTaskProposal } from '../../../types/oxana'
+import type { OxanaChatProposal, OxanaOwnerSettings } from '../../../types/oxana'
 import { oxanaErrorMessage } from '../../../utils/oxanaErrors'
 import { DEFAULT_OXANA_TIMEZONE } from '../../../utils/oxanaTime'
 import { OxanaCalendarPanel } from './OxanaCalendarPanel'
@@ -16,7 +16,9 @@ import { OxanaNotificationsPanel } from './OxanaNotificationsPanel'
 import { OxanaOverviewPanel } from './OxanaOverviewPanel'
 import { OxanaProjectsPanel } from './OxanaProjectsPanel'
 import { OxanaSettingsPanel } from './OxanaSettingsPanel'
+import { OxanaTaskChooseCard } from './OxanaTaskChooseCard'
 import { OxanaTaskProposalCard } from './OxanaTaskProposalCard'
+import { OxanaTaskUpdateCard } from './OxanaTaskUpdateCard'
 import { OxanaTasksPanel } from './OxanaTasksPanel'
 import { type OxanaFocus, type OxanaTabId } from './oxanaUi'
 
@@ -188,8 +190,8 @@ type ChatTurn =
   | {
       role: 'assistant'
       text: string
-      proposal?: OxanaTaskProposal
-      proposalStatus?: 'open' | 'submitting' | 'created' | 'cancelled'
+      proposal?: OxanaChatProposal
+      proposalStatus?: 'open' | 'submitting' | 'created' | 'updated' | 'cancelled'
       proposalError?: string | null
       idempotencyKey?: string
     }
@@ -262,10 +264,7 @@ function ChatPanel({
     const result = await sendOxanaChat(token, text)
     setSending(false)
     if (result.ok) {
-      const proposal =
-        result.data.proposal?.type === 'create_task'
-          ? result.data.proposal
-          : undefined
+      const proposal = result.data.proposal
       setTurns((current) => [
         ...current,
         {
@@ -273,7 +272,10 @@ function ChatPanel({
           text: result.data.reply,
           proposal,
           proposalStatus: proposal ? 'open' : undefined,
-          idempotencyKey: proposal ? newIdempotencyKey() : undefined,
+          idempotencyKey:
+            proposal && proposal.type !== 'choose_task'
+              ? newIdempotencyKey()
+              : undefined,
         },
       ])
       return
@@ -318,9 +320,10 @@ function ChatPanel({
                   </div>
                 </div>
                 {turn.role === 'assistant' &&
-                turn.proposal &&
+                turn.proposal?.type === 'create_task' &&
                 turn.proposalStatus &&
                 turn.proposalStatus !== 'cancelled' &&
+                turn.proposalStatus !== 'updated' &&
                 turn.idempotencyKey ? (
                   <OxanaTaskProposalCard
                     key={turn.idempotencyKey}
@@ -339,6 +342,61 @@ function ChatPanel({
                     onCreated={() => {
                       onTaskCreated()
                     }}
+                  />
+                ) : null}
+                {turn.role === 'assistant' &&
+                turn.proposal?.type === 'update_task' &&
+                turn.proposalStatus &&
+                turn.proposalStatus !== 'cancelled' &&
+                turn.proposalStatus !== 'created' &&
+                turn.idempotencyKey ? (
+                  <OxanaTaskUpdateCard
+                    key={turn.idempotencyKey}
+                    token={token}
+                    timezone={timezone}
+                    proposal={turn.proposal}
+                    status={turn.proposalStatus}
+                    error={turn.proposalError ?? null}
+                    idempotencyKey={turn.idempotencyKey}
+                    onProposal={(proposal) =>
+                      updateAssistant(index, { proposal, proposalError: null })
+                    }
+                    onStatus={(proposalStatus) =>
+                      updateAssistant(index, { proposalStatus })
+                    }
+                    onError={(proposalError) =>
+                      updateAssistant(index, { proposalError })
+                    }
+                    onUpdated={() => {
+                      onTaskCreated()
+                    }}
+                  />
+                ) : null}
+                {turn.role === 'assistant' &&
+                turn.proposal?.type === 'choose_task' &&
+                turn.proposalStatus &&
+                turn.proposalStatus !== 'cancelled' ? (
+                  <OxanaTaskChooseCard
+                    token={token}
+                    proposal={turn.proposal}
+                    status={
+                      turn.proposalStatus === 'submitting' ? 'submitting' : 'open'
+                    }
+                    error={turn.proposalError ?? null}
+                    onError={(proposalError) =>
+                      updateAssistant(index, { proposalError })
+                    }
+                    onChosen={(proposal) =>
+                      updateAssistant(index, {
+                        proposal,
+                        proposalStatus: 'open',
+                        proposalError: null,
+                        idempotencyKey: newIdempotencyKey(),
+                      })
+                    }
+                    onCancel={() =>
+                      updateAssistant(index, { proposalStatus: 'cancelled' })
+                    }
                   />
                 ) : null}
               </div>

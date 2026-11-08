@@ -9,7 +9,9 @@ import type {
   OxanaStatus,
   OxanaTask,
   OxanaTaskPriority,
-  OxanaTaskProposal,
+  OxanaChatProposal,
+  OxanaUpdateTaskIntend,
+  OxanaUpdateTaskProposal,
   OxanaTaskStatus,
 } from '../types/oxana'
 import { oxanaErrorMessage } from '../utils/oxanaErrors'
@@ -111,6 +113,8 @@ export async function updateOxanaTask(
     dueAt?: string | null
     priority?: OxanaTaskPriority
     archivedAt?: string | null
+    expectedUpdatedAt?: string
+    idempotencyKey?: string
   },
 ) {
   return oxanaRequest<{ ok: true; task: OxanaTask }>(
@@ -119,6 +123,24 @@ export async function updateOxanaTask(
       token,
       method: 'PATCH',
       body: input,
+    },
+  )
+}
+
+export async function proposeOxanaTaskUpdate(
+  token: string,
+  taskId: string,
+  intend: OxanaUpdateTaskIntend & {
+    dueNeedsClarification?: boolean
+    dueAmbiguousWeekday?: string
+  },
+) {
+  return oxanaRequest<{ ok: true; proposal: OxanaUpdateTaskProposal }>(
+    `/api/oxana/tasks/${taskId}/propose-update`,
+    {
+      token,
+      method: 'POST',
+      body: intend,
     },
   )
 }
@@ -308,7 +330,7 @@ export async function sendOxanaChat(token: string, message: string) {
     ok: true
     reply: string
     provider: string
-    proposal?: OxanaTaskProposal
+    proposal?: OxanaChatProposal
   }>('/api/oxana/chat', {
     token,
     method: 'POST',

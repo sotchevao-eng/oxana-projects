@@ -14,6 +14,7 @@ import { fromDateTimeLocal, toDateTimeLocal } from '../../../utils/oxanaTime'
 import {
   isProposalCardLocked,
   proposalCardHeading,
+  type OxanaProposalCardStatus,
 } from './oxanaProposalCard'
 import {
   OXANA_CARD_CLASS,
@@ -26,10 +27,10 @@ interface Props {
   token: string
   timezone: string
   proposal: OxanaTaskProposal
-  status: 'open' | 'submitting' | 'created' | 'cancelled'
+  status: OxanaProposalCardStatus
   error: string | null
   idempotencyKey: string
-  onStatus: (status: 'open' | 'submitting' | 'created' | 'cancelled') => void
+  onStatus: (status: OxanaProposalCardStatus) => void
   onError: (error: string | null) => void
   onCreated: (task: OxanaTask) => void
 }
