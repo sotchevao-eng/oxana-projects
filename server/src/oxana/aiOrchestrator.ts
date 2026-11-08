@@ -7,6 +7,16 @@ import {
   oxanaProposeFunctionDefinition,
   type OxanaCreateTaskProposal,
 } from './aiPropose.js'
+import {
+  executeOxanaProposeUpdateTask,
+  isOxanaProposeUpdateFunction,
+  looksLikeTaskUpdateRequest,
+  OXANA_CHOOSE_TASK_REPLY,
+  OXANA_TASK_NOT_FOUND_REPLY,
+  OXANA_UPDATE_PROPOSAL_REPLY,
+  oxanaProposeUpdateFunctionDefinition,
+  type OxanaChatProposal,
+} from './aiProposeUpdate.js'
 import { executeOxanaReadFunction, oxanaReadFunctionDefinitions } from './aiTools.js'
 import { OxanaAiNotConfiguredError, OxanaAiUnavailableError } from './errors.js'
 import {
@@ -15,8 +25,26 @@ import {
   OXANA_CHAT_SYSTEM_PROMPT,
   OXANA_DATA_UNAVAILABLE_REPLY,
   type GigachatChatMessage,
+  type GigachatFunctionDefinition,
 } from './gigachatClient.js'
+import { dueAmbiguousReply } from './taskDue.js'
 import type { OxanaRepository } from './types.js'
+
+export type OxanaCabinetProposal = OxanaCreateTaskProposal | OxanaChatProposal
+
+export function cabinetChatFunctions(message: string): GigachatFunctionDefinition[] {
+  if (looksLikeTaskUpdateRequest(message)) {
+    return [oxanaProposeUpdateFunctionDefinition()]
+  }
+  if (looksLikeTaskCreateRequest(message)) {
+    return [oxanaProposeFunctionDefinition()]
+  }
+  return [
+    ...oxanaReadFunctionDefinitions(),
+    oxanaProposeFunctionDefinition(),
+    oxanaProposeUpdateFunctionDefinition(),
+  ]
+}
 
 export async function runOxanaCabinetChat(options: {
   ai: OxanaAiProvider
@@ -25,20 +53,21 @@ export async function runOxanaCabinetChat(options: {
   workspaceId: string
   message: string
   now?: Date
-}): Promise<{ reply: string; proposal?: OxanaCreateTaskProposal }> {
+}): Promise<{ reply: string; proposal?: OxanaCabinetProposal }> {
   if (!options.ai.isConfigured()) {
     throw new OxanaAiNotConfiguredError()
   }
 
-  const functions = looksLikeTaskCreateRequest(options.message)
-    ? [oxanaProposeFunctionDefinition()]
-    : [...oxanaReadFunctionDefinitions(), oxanaProposeFunctionDefinition()]
+  const functions = cabinetChatFunctions(options.message)
+  const allowed = new Set(functions.map((item) => item.name))
   const messages: GigachatChatMessage[] = [
     { role: 'system', content: OXANA_CHAT_SYSTEM_PROMPT },
     { role: 'user', content: options.message },
   ]
   let dataFailed = false
-  let proposal: OxanaCreateTaskProposal | undefined
+  let proposal: OxanaCabinetProposal | undefined
+  let notFound = false
+  let dueAmbiguousWeekday: string | null = null
 
   for (let round = 0; round <= MAX_FUNCTION_ROUNDS; round += 1) {
     const result = await options.ai.complete({
@@ -48,22 +77,37 @@ export async function runOxanaCabinetChat(options: {
     })
 
     if (result.finishReason === 'error') {
-      if (proposal) {
-        return { reply: OXANA_PROPOSAL_REPLY, proposal }
-      }
-      return { reply: OXANA_DATA_UNAVAILABLE_REPLY }
+      return finalizeChat({
+        proposal,
+        notFound,
+        dataFailed,
+        dueAmbiguousWeekday,
+        reply: '',
+        source: 'error',
+      })
     }
 
     if (result.functionCall) {
       if (round === MAX_FUNCTION_ROUNDS) {
-        if (proposal) {
-          return { reply: OXANA_PROPOSAL_REPLY, proposal }
-        }
-        return { reply: OXANA_DATA_UNAVAILABLE_REPLY }
+        return finalizeChat({
+          proposal,
+          notFound,
+          dataFailed,
+          dueAmbiguousWeekday,
+          reply: '',
+          source: 'error',
+        })
       }
 
-      let payload: Record<string, unknown>
-      if (isOxanaProposeFunction(result.functionCall.name)) {
+      const name = result.functionCall.name
+      let payload: Record<string, unknown> = {
+        ok: false,
+        error: 'unknown_function',
+        created: false,
+        updated: false,
+      }
+
+      if (isOxanaProposeFunction(name) && allowed.has(name)) {
         const tool = await executeOxanaProposeCreateTask(
           result.functionCall.arguments,
           {
@@ -78,9 +122,36 @@ export async function runOxanaCabinetChat(options: {
         if (tool.proposal) {
           proposal = tool.proposal
         }
-      } else {
+        if (tool.payload.error === 'due_ambiguous') {
+          dueAmbiguousWeekday = String(tool.payload.weekday ?? 'этот день недели')
+        }
+      } else if (isOxanaProposeUpdateFunction(name) && allowed.has(name)) {
+        const tool = await executeOxanaProposeUpdateTask(
+          result.functionCall.arguments,
+          {
+            repo: options.repo,
+            workspaceId: options.workspaceId,
+            userId: options.userId,
+            userMessage: options.message,
+            now: options.now,
+          },
+        )
+        payload = tool.payload
+        if (tool.proposal) {
+          proposal = tool.proposal
+        }
+        if (tool.payload.error === 'task_not_found') {
+          notFound = true
+        }
+        if (
+          tool.proposal?.type === 'update_task' &&
+          tool.proposal.dueAmbiguousWeekday
+        ) {
+          dueAmbiguousWeekday = tool.proposal.dueAmbiguousWeekday
+        }
+      } else if (allowed.has(name)) {
         const tool = await executeOxanaReadFunction(
-          result.functionCall.name,
+          name,
           result.functionCall.arguments,
           {
             repo: options.repo,
@@ -102,29 +173,70 @@ export async function runOxanaCabinetChat(options: {
       })
       messages.push({
         role: 'function',
-        name: result.functionCall.name,
+        name,
         content: JSON.stringify(payload),
       })
       continue
     }
 
     const reply = result.content.trim()
-    if (proposal) {
-      return { reply: OXANA_PROPOSAL_REPLY, proposal }
-    }
-    if (!reply) {
-      throw new OxanaAiUnavailableError()
-    }
-    if (dataFailed) {
-      return { reply: OXANA_DATA_UNAVAILABLE_REPLY }
-    }
-    return {
-      reply: reply.slice(0, MAX_REPLY_CHARS),
-    }
+    return finalizeChat({
+      proposal,
+      notFound,
+      dataFailed,
+      dueAmbiguousWeekday,
+      reply,
+      source: 'stop',
+    })
   }
 
-  if (proposal) {
-    return { reply: OXANA_PROPOSAL_REPLY, proposal }
+  return finalizeChat({
+    proposal,
+    notFound,
+    dataFailed,
+    dueAmbiguousWeekday,
+    reply: '',
+    source: 'error',
+  })
+}
+
+function finalizeChat(options: {
+  proposal?: OxanaCabinetProposal
+  notFound: boolean
+  dataFailed: boolean
+  dueAmbiguousWeekday: string | null
+  reply: string
+  source: 'stop' | 'error'
+}): { reply: string; proposal?: OxanaCabinetProposal } {
+  if (options.proposal?.type === 'create_task') {
+    return { reply: OXANA_PROPOSAL_REPLY, proposal: options.proposal }
   }
-  return { reply: OXANA_DATA_UNAVAILABLE_REPLY }
+  if (options.proposal?.type === 'update_task') {
+    const reply = options.proposal.dueNeedsClarification
+      ? dueAmbiguousReply(options.proposal.dueAmbiguousWeekday)
+      : OXANA_UPDATE_PROPOSAL_REPLY
+    return { reply, proposal: options.proposal }
+  }
+  if (options.proposal?.type === 'choose_task') {
+    const reply = options.proposal.dueNeedsClarification
+      ? `${OXANA_CHOOSE_TASK_REPLY} ${dueAmbiguousReply(options.proposal.dueAmbiguousWeekday)}`
+      : OXANA_CHOOSE_TASK_REPLY
+    return { reply, proposal: options.proposal }
+  }
+  if (options.notFound) {
+    return { reply: OXANA_TASK_NOT_FOUND_REPLY }
+  }
+  if (options.dueAmbiguousWeekday) {
+    return { reply: dueAmbiguousReply(options.dueAmbiguousWeekday) }
+  }
+  if (!options.reply) {
+    if (options.source === 'error' || options.dataFailed) {
+      return { reply: OXANA_DATA_UNAVAILABLE_REPLY }
+    }
+    throw new OxanaAiUnavailableError()
+  }
+  if (options.dataFailed) {
+    return { reply: OXANA_DATA_UNAVAILABLE_REPLY }
+  }
+  return { reply: options.reply.slice(0, MAX_REPLY_CHARS) }
 }

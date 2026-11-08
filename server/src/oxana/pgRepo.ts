@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg'
 import {
+  OxanaConflictError,
   OxanaDbUnavailableError,
   OxanaIdempotencyConflictError,
   OxanaNotFoundError,
@@ -22,6 +23,7 @@ import type {
   UpdateEventInput,
   UpdateProjectInput,
   UpdateTaskInput,
+  UpdateTaskOptions,
 } from './types.js'
 import { isReminderRunAtTooOld } from './reminderPolicy.js'
 import { DEFAULT_OWNER_SETTINGS, mergeSettings } from './settingsDefaults.js'
@@ -40,6 +42,20 @@ const EVENT_SELECT = `e.id, e.workspace_id, e.title, e.description, e.starts_at,
 const NOTIFICATION_SELECT = `id, workspace_id, user_id, title, body, channel,
                 source_type, source_id, read_at, created_at`
 
+function toIso(value: unknown): string {
+  if (value instanceof Date) {
+    return value.toISOString()
+  }
+  return new Date(String(value)).toISOString()
+}
+
+function toIsoOrNull(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+  return toIso(value)
+}
+
 function mapTask(row: Record<string, unknown>): OxanaTask {
   return {
     id: String(row.id),
@@ -50,13 +66,11 @@ function mapTask(row: Record<string, unknown>): OxanaTask {
     description: row.description ? String(row.description) : null,
     status: row.status as OxanaTask['status'],
     priority: (row.priority as OxanaTask['priority']) || 'normal',
-    dueAt: row.due_at ? new Date(String(row.due_at)).toISOString() : null,
-    archivedAt: row.archived_at
-      ? new Date(String(row.archived_at)).toISOString()
-      : null,
+    dueAt: toIsoOrNull(row.due_at),
+    archivedAt: toIsoOrNull(row.archived_at),
     createdBy: String(row.created_by),
-    createdAt: new Date(String(row.created_at)).toISOString(),
-    updatedAt: new Date(String(row.updated_at)).toISOString(),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
   }
 }
 
@@ -67,11 +81,11 @@ function mapProject(row: Record<string, unknown>): OxanaProject {
     title: String(row.title),
     description: row.description ? String(row.description) : null,
     status: row.status as OxanaProject['status'],
-    startsAt: row.starts_at ? new Date(String(row.starts_at)).toISOString() : null,
-    dueAt: row.due_at ? new Date(String(row.due_at)).toISOString() : null,
+    startsAt: toIsoOrNull(row.starts_at),
+    dueAt: toIsoOrNull(row.due_at),
     createdBy: String(row.created_by),
-    createdAt: new Date(String(row.created_at)).toISOString(),
-    updatedAt: new Date(String(row.updated_at)).toISOString(),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
     taskCount: Number(row.task_count ?? 0),
     doneCount: Number(row.done_count ?? 0),
     overdueCount: Number(row.overdue_count ?? 0),
@@ -84,13 +98,13 @@ function mapEvent(row: Record<string, unknown>): OxanaEvent {
     workspaceId: String(row.workspace_id),
     title: String(row.title),
     description: row.description ? String(row.description) : null,
-    startsAt: new Date(String(row.starts_at)).toISOString(),
-    endsAt: row.ends_at ? new Date(String(row.ends_at)).toISOString() : null,
-    remindAt: row.remind_at ? new Date(String(row.remind_at)).toISOString() : null,
+    startsAt: toIso(row.starts_at),
+    endsAt: toIsoOrNull(row.ends_at),
+    remindAt: toIsoOrNull(row.remind_at),
     projectId: row.project_id ? String(row.project_id) : null,
     projectTitle: row.project_title ? String(row.project_title) : null,
     createdBy: String(row.created_by),
-    createdAt: new Date(String(row.created_at)).toISOString(),
+    createdAt: toIso(row.created_at),
   }
 }
 
@@ -109,8 +123,8 @@ function mapNotification(row: Record<string, unknown>): OxanaNotification {
       parsed?.sourceType ||
       null,
     sourceId: row.source_id ? String(row.source_id) : parsed?.sourceId || null,
-    readAt: row.read_at ? new Date(String(row.read_at)).toISOString() : null,
-    createdAt: new Date(String(row.created_at)).toISOString(),
+    readAt: toIsoOrNull(row.read_at),
+    createdAt: toIso(row.created_at),
   }
 }
 
@@ -146,7 +160,8 @@ function wrapDbError(error: unknown): never {
   if (
     error instanceof OxanaDbUnavailableError ||
     error instanceof OxanaNotFoundError ||
-    error instanceof OxanaIdempotencyConflictError
+    error instanceof OxanaIdempotencyConflictError ||
+    error instanceof OxanaConflictError
   ) {
     throw error
   }
@@ -426,6 +441,7 @@ export class PgOxanaRepo implements OxanaRepository {
     workspaceId: string,
     taskId: string,
     input: UpdateTaskInput,
+    options?: UpdateTaskOptions,
   ): Promise<OxanaTask> {
     const pool = this.requirePool()
     try {
@@ -440,8 +456,16 @@ export class PgOxanaRepo implements OxanaRepository {
         }
       }
 
-      const sets = ['updated_at = now()']
+      const sets = [
+        `updated_at = greatest(clock_timestamp(), updated_at + interval '1 millisecond')`,
+      ]
       const values: unknown[] = [taskId, workspaceId]
+      const expectedUpdatedAt = options?.expectedUpdatedAt ?? null
+      let expectedIndex: number | null = null
+      if (expectedUpdatedAt) {
+        values.push(expectedUpdatedAt)
+        expectedIndex = values.length
+      }
       if (input.status !== undefined) {
         values.push(input.status)
         sets.push(`status = $${values.length}`)
@@ -471,15 +495,25 @@ export class PgOxanaRepo implements OxanaRepository {
         sets.push(`archived_at = $${values.length}`)
       }
 
+      // Version check is this UPDATE WHERE, not a prior SELECT.
+      // The 1ms range covers PG microseconds vs JS Date milliseconds.
+      const conflictClause = expectedIndex
+        ? ` and updated_at >= $${expectedIndex}::timestamptz
+            and updated_at < $${expectedIndex}::timestamptz + interval '1 millisecond'`
+        : ''
       const result = await pool.query<{ id: string }>(
         `update oxana.tasks
          set ${sets.join(', ')}
-         where id = $1 and workspace_id = $2
+         where id = $1 and workspace_id = $2${conflictClause}
          returning id`,
         values,
       )
       if (!result.rows[0]) {
-        throw new OxanaNotFoundError()
+        if (!expectedUpdatedAt) {
+          throw new OxanaNotFoundError()
+        }
+        await this.getTask(workspaceId, taskId)
+        throw new OxanaConflictError()
       }
       return this.getTask(workspaceId, result.rows[0].id)
     } catch (error) {

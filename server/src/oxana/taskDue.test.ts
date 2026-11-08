@@ -39,3 +39,29 @@ test('calendar YYYY-MM-DD is accepted when it is not in the past', () => {
   if (!resolved.ok) return
   assert.equal(resolved.dueAt, '2026-11-15T20:59:00.000Z')
 })
+
+test('friday is the next Friday in Europe/Moscow', () => {
+  const saturday = resolveProposedDueAt(
+    'friday',
+    'Europe/Moscow',
+    new Date('2026-11-07T16:00:00.000Z'),
+  )
+  assert.equal(saturday.ok, true)
+  if (!saturday.ok) return
+  assert.equal(saturday.dueLabel, 'пятница')
+  assert.equal(saturday.dueAt, '2026-11-13T20:59:00.000Z')
+})
+
+test('friday is ambiguous when today is already Friday', () => {
+  const alreadyFriday = resolveProposedDueAt(
+    'пятницу',
+    'Europe/Moscow',
+    new Date('2026-11-06T16:00:00.000Z'),
+  )
+  assert.equal(alreadyFriday.ok, false)
+  if (alreadyFriday.ok) return
+  assert.equal(alreadyFriday.error, 'due_ambiguous')
+  if (alreadyFriday.error === 'due_ambiguous') {
+    assert.equal(alreadyFriday.weekday, 'пятница')
+  }
+})

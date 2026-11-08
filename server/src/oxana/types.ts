@@ -100,6 +100,10 @@ export interface UpdateTaskInput {
   archivedAt?: string | null
 }
 
+export interface UpdateTaskOptions {
+  expectedUpdatedAt?: string | null
+}
+
 export interface UpdateProjectInput {
   title?: string
   description?: string | null
@@ -174,6 +178,7 @@ export interface OxanaRepository {
     workspaceId: string,
     taskId: string,
     input: UpdateTaskInput,
+    options?: UpdateTaskOptions,
   ): Promise<OxanaTask>
   deleteTask(workspaceId: string, taskId: string): Promise<void>
   listProjects(workspaceId: string): Promise<OxanaProject[]>

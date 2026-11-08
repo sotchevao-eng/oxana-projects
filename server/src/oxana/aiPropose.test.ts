@@ -8,6 +8,7 @@ import {
   resolveProposalDescription,
   resolveProposalTitle,
 } from './aiPropose.js'
+import { looksLikeTaskUpdateRequest } from './aiProposeUpdate.js'
 import { resolveProposedDueAt } from './taskDue.js'
 
 const USER_MESSAGE =
@@ -21,6 +22,21 @@ test('create-task phrasing is detected without treating a list question as creat
   )
   assert.equal(looksLikeTaskCreateRequest('Какие у меня задачи?'), false)
   assert.equal(looksLikeTaskCreateRequest('Что просрочено?'), false)
+  assert.equal(
+    looksLikeTaskCreateRequest(
+      'ОКСИ, перенеси задачу «Тест создания задачи ОКСИ» на пятницу и установи высокий приоритет',
+    ),
+    false,
+  )
+})
+
+test('update-task phrasing is distinct from create', () => {
+  const updateMessage =
+    'ОКСИ, перенеси задачу «Тест создания задачи ОКСИ» на пятницу и установи высокий приоритет'
+  assert.equal(looksLikeTaskUpdateRequest(updateMessage), true)
+  assert.equal(looksLikeTaskUpdateRequest(USER_MESSAGE), false)
+  assert.equal(looksLikeTaskUpdateRequest('Какие у меня задачи?'), false)
+  assert.equal(extractDueHint(updateMessage), 'friday')
 })
 
 test('quoted title from the current message wins over an existing task title', () => {

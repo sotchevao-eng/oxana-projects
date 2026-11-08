@@ -60,3 +60,12 @@ export class OxanaIdempotencyConflictError extends Error {
     this.name = 'OxanaIdempotencyConflictError'
   }
 }
+
+export class OxanaConflictError extends Error {
+  readonly code = 'task_changed'
+
+  constructor(message = 'Task changed after the proposal was prepared') {
+    super(message)
+    this.name = 'OxanaConflictError'
+  }
+}

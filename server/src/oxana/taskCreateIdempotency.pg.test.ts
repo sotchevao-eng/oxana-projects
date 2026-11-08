@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawn, execFileSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -14,6 +14,8 @@ import {
   resetOxanaPoolForTests,
 } from './db.js'
 import { PgOxanaRepo } from './pgRepo.js'
+
+/** Isolated PG tests run only when OXANA_RUN_PG_TESTS=1. Ordinary npm test must not start PostgreSQL. */
 
 const TEST_SECRET = 'oxana-test-jwt-secret-please-change'
 const OWNER_A = '11111111-1111-4111-8111-111111111111'
@@ -60,9 +62,65 @@ let previousSsl: string | undefined
 let previousAllowlist: string | undefined
 let previousJwt: string | undefined
 let isolatedUrl: string | null = null
-let ephemeralDataDir: string | null = null
-let ephemeralBin: string | null = null
 let ephemeralError: string | null = null
+let ownedCluster: {
+  bin: string
+  dataDir: string
+  port: number
+  logFile: string
+  started: boolean
+} | null = null
+let stoppingCluster = false
+let cleanupHooksBound = false
+
+function pgTestsEnabled(): boolean {
+  return process.env.OXANA_RUN_PG_TESTS === '1'
+}
+
+function pgExecutable(bin: string, name: 'initdb' | 'pg_ctl'): string {
+  const file = process.platform === 'win32' ? `${name}.exe` : name
+  return path.join(bin, file)
+}
+
+function runHiddenPg(
+  bin: string,
+  name: 'initdb' | 'pg_ctl',
+  args: string[],
+  timeoutMs = 30_000,
+): string {
+  try {
+    return execFileSync(pgExecutable(bin, name), args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      encoding: 'utf8',
+      timeout: timeoutMs,
+    })
+  } catch (error) {
+    const err = error as { status?: number | null; stderr?: string; stdout?: string }
+    const stderr = String(err.stderr ?? '').slice(0, 800)
+    throw new Error(
+      `${name} failed status=${err.status ?? 'unknown'} stderr=${stderr || 'none'}`,
+    )
+  }
+}
+
+function reportClusterStopFailure(reason: string): void {
+  ephemeralError = reason
+  const pidFile = ownedCluster
+    ? path.join(ownedCluster.dataDir, 'postmaster.pid')
+    : undefined
+  console.error(
+    JSON.stringify({
+      event: 'oxana_ephemeral_pg_stop_failed',
+      reason,
+      dataDir: ownedCluster?.dataDir,
+      logFile: ownedCluster?.logFile,
+      port: ownedCluster?.port,
+      postmasterPidFile: pidFile,
+      postmasterPidPresent: pidFile ? existsSync(pidFile) : false,
+    }),
+  )
+}
 
 function postgresBin(): string | null {
   const candidates = [
@@ -70,7 +128,8 @@ function postgresBin(): string | null {
     'C:\\Program Files\\PostgreSQL\\17\\bin',
     'C:\\Program Files\\PostgreSQL\\16\\bin',
   ].filter((item): item is string => Boolean(item))
-  return candidates.find((item) => existsSync(path.join(item, 'pg_ctl.exe'))) ?? null
+  const tool = process.platform === 'win32' ? 'pg_ctl.exe' : 'pg_ctl'
+  return candidates.find((item) => existsSync(path.join(item, tool))) ?? null
 }
 
 function tryConnect(url: string): Promise<pg.Client | null> {
@@ -103,30 +162,58 @@ function reserveLocalPort(): Promise<number> {
   })
 }
 
+function bindCleanupHooks(): void {
+  if (cleanupHooksBound) {
+    return
+  }
+  cleanupHooksBound = true
+  process.on('exit', () => {
+    stopEphemeralPostgres()
+  })
+  process.on('SIGINT', () => {
+    stopEphemeralPostgres()
+    process.exit(130)
+  })
+  process.on('SIGTERM', () => {
+    stopEphemeralPostgres()
+    process.exit(143)
+  })
+}
+
 async function startEphemeralPostgres(): Promise<string | null> {
+  if (!pgTestsEnabled()) {
+    ephemeralError = 'isolated PostgreSQL tests require OXANA_RUN_PG_TESTS=1'
+    return null
+  }
+  if (isolatedUrl && ownedCluster?.started) {
+    return isolatedUrl
+  }
+  if (ownedCluster) {
+    ephemeralError =
+      'refusing a second ephemeral PostgreSQL cluster in this test process'
+    return null
+  }
   const bin = postgresBin()
   if (!bin) {
+    ephemeralError = 'local PostgreSQL bin with pg_ctl was not found'
     return null
   }
   const dataDir = mkdtempSync(path.join(tmpdir(), 'oxana-pg-'))
-  ephemeralDataDir = dataDir
-  ephemeralBin = bin
+  const logFile = path.join(dataDir, 'oxana-pg.log')
+  const port = await reserveLocalPort()
+  ownedCluster = { bin, dataDir, port, logFile, started: false }
+  bindCleanupHooks()
   try {
-    const port = await reserveLocalPort()
-    execFileSync(
-      path.join(bin, 'initdb.exe'),
-      [
-        '-D',
-        dataDir,
-        '-U',
-        'oxana',
-        '--auth=trust',
-        '--encoding=UTF8',
-        '--locale=C',
-        '--no-sync',
-      ],
-      { stdio: 'pipe', timeout: 30_000 },
-    )
+    runHiddenPg(bin, 'initdb', [
+      '-D',
+      dataDir,
+      '-U',
+      'oxana',
+      '--auth=trust',
+      '--encoding=UTF8',
+      '--locale=C',
+      '--no-sync',
+    ])
     writeFileSync(
       path.join(dataDir, 'postgresql.conf'),
       `${readFileSync(path.join(dataDir, 'postgresql.conf'), 'utf8')}
@@ -135,26 +222,13 @@ port = ${port}
 `,
       'utf8',
     )
-    const child = spawn(
-      path.join(bin, 'postgres.exe'),
-      ['-D', dataDir, '-h', '127.0.0.1', '-p', String(port)],
-      { detached: true, stdio: 'ignore' },
+    runHiddenPg(
+      bin,
+      'pg_ctl',
+      ['start', '-w', '-t', '20', '-D', dataDir, '-l', logFile],
+      40_000,
     )
-    child.unref()
-    const started = Date.now()
-    let ready = false
-    while (Date.now() - started < 15_000) {
-      const probe = await tryConnect(`postgresql://oxana@127.0.0.1:${port}/postgres`)
-      if (probe) {
-        await probe.end()
-        ready = true
-        break
-      }
-      await new Promise((resolve) => setTimeout(resolve, 200))
-    }
-    if (!ready) {
-      throw new Error('ephemeral postgres did not accept connections')
-    }
+    ownedCluster.started = true
     const bootstrap = new pg.Client({
       connectionString: `postgresql://oxana@127.0.0.1:${port}/postgres`,
       ssl: false,
@@ -174,26 +248,61 @@ port = ${port}
   }
 }
 
-function stopEphemeralPostgres(): void {
-  if (ephemeralBin && ephemeralDataDir && existsSync(ephemeralDataDir)) {
-    try {
-      execFileSync(
-        path.join(ephemeralBin, 'pg_ctl.exe'),
-        ['stop', '-w', '-D', ephemeralDataDir, '-m', 'fast'],
-        { stdio: 'pipe' },
-      )
-    } catch {
-      // best-effort
+function stopEphemeralPostgres(): boolean {
+  if (!ownedCluster) {
+    return true
+  }
+  if (stoppingCluster) {
+    return false
+  }
+  stoppingCluster = true
+  const cluster = ownedCluster
+  const pidFile = path.join(cluster.dataDir, 'postmaster.pid')
+  try {
+    if (cluster.started || existsSync(pidFile)) {
+      try {
+        runHiddenPg(
+          cluster.bin,
+          'pg_ctl',
+          ['stop', '-w', '-t', '20', '-D', cluster.dataDir, '-m', 'fast'],
+          40_000,
+        )
+      } catch (error) {
+        reportClusterStopFailure(
+          error instanceof Error ? error.message : 'pg_ctl stop failed',
+        )
+        return false
+      }
+      if (existsSync(pidFile)) {
+        reportClusterStopFailure('postmaster.pid still present after pg_ctl stop')
+        return false
+      }
     }
+    try {
+      rmSync(cluster.dataDir, { recursive: true, force: true })
+    } catch (error) {
+      reportClusterStopFailure(
+        error instanceof Error
+          ? `failed to remove dataDir: ${error.message}`
+          : 'failed to remove dataDir',
+      )
+      return false
+    }
+    ownedCluster = null
+    return true
+  } finally {
+    stoppingCluster = false
   }
-  if (ephemeralDataDir) {
-    rmSync(ephemeralDataDir, { recursive: true, force: true })
-  }
-  ephemeralDataDir = null
-  ephemeralBin = null
 }
 
 async function connectIsolated(): Promise<pg.Client | null> {
+  if (!pgTestsEnabled()) {
+    ephemeralError = 'isolated PostgreSQL tests require OXANA_RUN_PG_TESTS=1'
+    return null
+  }
+  if (isolatedUrl) {
+    return tryConnect(isolatedUrl)
+  }
   const candidates = [
     process.env.OXANA_TEST_DATABASE_URL?.trim(),
   ].filter((item): item is string => Boolean(item))
@@ -298,10 +407,28 @@ function restoreAppEnv(): void {
 after(async () => {
   await closeOxanaPool().catch(() => undefined)
   restoreAppEnv()
-  stopEphemeralPostgres()
+  if (!stopEphemeralPostgres() && ownedCluster) {
+    throw new Error(
+      ephemeralError ??
+        'ephemeral PostgreSQL stop failed; data directory kept for diagnostics',
+    )
+  }
+})
+
+test('ordinary npm test does not start ephemeral PostgreSQL', (t) => {
+  if (pgTestsEnabled()) {
+    t.skip('OXANA_RUN_PG_TESTS=1 is set')
+    return
+  }
+  assert.equal(ownedCluster, null)
+  assert.equal(isolatedUrl, null)
 })
 
 test('isolated Postgres idempotency: replay, conflict, concurrent insert, reconnect', async (t) => {
+  if (!pgTestsEnabled()) {
+    t.skip('isolated PostgreSQL tests require OXANA_RUN_PG_TESTS=1')
+    return
+  }
   const admin = await connectIsolated()
   if (!admin || !isolatedUrl) {
     t.skip(ephemeralError ?? 'isolated PostgreSQL is not running')
@@ -470,6 +597,165 @@ test('isolated Postgres idempotency: replay, conflict, concurrent insert, reconn
       `select count(*)::text as tasks from oxana.tasks`,
     )
     assert.equal(reconnectCounts.rows[0]?.tasks, '1')
+  } finally {
+    await closeOxanaPool().catch(() => undefined)
+    restoreAppEnv()
+    await admin.end()
+  }
+})
+
+test('isolated Postgres task patch: atomic version, replay, concurrent writes', async (t) => {
+  if (!pgTestsEnabled()) {
+    t.skip('isolated PostgreSQL tests require OXANA_RUN_PG_TESTS=1')
+    return
+  }
+  const admin = await connectIsolated()
+  if (!admin || !isolatedUrl) {
+    t.skip(ephemeralError ?? 'isolated PostgreSQL is not running')
+    return
+  }
+
+  try {
+    await prepareIsolatedSchema(admin)
+    await resetCabinet(admin)
+    bindAppEnv(isolatedUrl)
+    const app = createApp({ oxanaRepo: new PgOxanaRepo() })
+    const token = await signToken(OWNER_A)
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    }
+    const created = await readJson(
+      await app.request('/api/oxana/tasks', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          title: 'Конкурентный PATCH',
+          description: 'оставить',
+          dueAt: '2026-11-13T20:59:00.000Z',
+          priority: 'normal',
+        }),
+      }),
+    )
+    assert.equal(typeof (created.task as Record<string, unknown>)?.id, 'string')
+    const task = created.task as Record<string, unknown>
+    const taskId = String(task.id)
+    const expectedMs = String(task.updatedAt)
+
+    const sameBody = JSON.stringify({
+      priority: 'high',
+      expectedUpdatedAt: expectedMs,
+    })
+    const first = await app.request(`/api/oxana/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers,
+      body: sameBody,
+    })
+    const firstBody = await readJson(first)
+    assert.equal(first.status, 200)
+    assert.equal((firstBody.task as Record<string, unknown>).priority, 'high')
+    assert.equal(
+      (firstBody.task as Record<string, unknown>).dueAt,
+      '2026-11-13T20:59:00.000Z',
+    )
+    assert.equal(
+      (firstBody.task as Record<string, unknown>).description,
+      'оставить',
+    )
+    const afterFirst = String((firstBody.task as Record<string, unknown>).updatedAt)
+    assert.notEqual(afterFirst, expectedMs)
+
+    const lostResponse = await app.request(`/api/oxana/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers,
+      body: sameBody,
+    })
+    const lostBody = await readJson(lostResponse)
+    assert.equal(lostResponse.status, 409)
+    assert.equal(lostBody.error, 'task_changed')
+    const afterLost = await readJson(
+      await app.request('/api/oxana/tasks', { headers }),
+    )
+    const afterLostTask = (afterLost.tasks as Array<Record<string, unknown>>)[0]
+    assert.equal(afterLostTask?.priority, 'high')
+    assert.equal(String(afterLostTask?.updatedAt), afterFirst)
+
+    const otherContent = await app.request(`/api/oxana/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({
+        priority: 'urgent',
+        expectedUpdatedAt: expectedMs,
+      }),
+    })
+    const otherBody = await readJson(otherContent)
+    assert.equal(otherContent.status, 409)
+    assert.equal(otherBody.error, 'task_changed')
+
+    await resetCabinet(admin)
+    const seed = await readJson(
+      await app.request('/api/oxana/tasks', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ title: 'Два PATCH', priority: 'normal' }),
+      }),
+    )
+    const concurrentId = String((seed.task as Record<string, unknown>).id)
+    const concurrentExpected = String(
+      (seed.task as Record<string, unknown>).updatedAt,
+    )
+    const concurrentBody = JSON.stringify({
+      priority: 'high',
+      expectedUpdatedAt: concurrentExpected,
+    })
+    const [left, right] = await Promise.all([
+      app.request(`/api/oxana/tasks/${concurrentId}`, {
+        method: 'PATCH',
+        headers,
+        body: concurrentBody,
+      }),
+      app.request(`/api/oxana/tasks/${concurrentId}`, {
+        method: 'PATCH',
+        headers,
+        body: concurrentBody,
+      }),
+    ])
+    const leftBody = await readJson(left)
+    const rightBody = await readJson(right)
+    const concurrentStatuses = [left.status, right.status].sort()
+    assert.deepEqual(concurrentStatuses, [200, 409])
+    const winner =
+      left.status === 200 ? leftBody.task : rightBody.task
+    assert.equal((winner as Record<string, unknown>).priority, 'high')
+    const winnerUpdatedAt = String(
+      (winner as Record<string, unknown>).updatedAt,
+    )
+
+    const mixed = await Promise.all([
+      app.request(`/api/oxana/tasks/${concurrentId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          title: 'Левый',
+          expectedUpdatedAt: winnerUpdatedAt,
+        }),
+      }),
+      app.request(`/api/oxana/tasks/${concurrentId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          title: 'Правый',
+          expectedUpdatedAt: winnerUpdatedAt,
+        }),
+      }),
+    ])
+    const mixedStatuses = mixed.map((item) => item.status).sort()
+    assert.deepEqual(mixedStatuses, [200, 409])
+    const kept = await readJson(
+      await app.request('/api/oxana/tasks', { headers }),
+    )
+    const keptTitle = (kept.tasks as Array<Record<string, unknown>>)[0]?.title
+    assert.equal(['Левый', 'Правый'].includes(String(keptTitle)), true)
   } finally {
     await closeOxanaPool().catch(() => undefined)
     restoreAppEnv()

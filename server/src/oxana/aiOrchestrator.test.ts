@@ -5,6 +5,11 @@ import { createApp } from '../app.js'
 import { GigaChatAdapter } from './aiAdapter.js'
 import { OXANA_PROPOSAL_REPLY } from './aiPropose.js'
 import {
+  OXANA_CHOOSE_TASK_REPLY,
+  OXANA_TASK_NOT_FOUND_REPLY,
+  OXANA_UPDATE_PROPOSAL_REPLY,
+} from './aiProposeUpdate.js'
+import {
   executeOxanaReadFunction,
   REDACTED_CABINET_TITLE,
   titleForExternalModel,
@@ -134,9 +139,10 @@ class SpyRepo extends MemoryOxanaRepo {
     workspaceId: string,
     taskId: string,
     input: Parameters<MemoryOxanaRepo['updateTask']>[2],
+    options?: Parameters<MemoryOxanaRepo['updateTask']>[3],
   ) {
     this.updateTaskCalls += 1
-    return super.updateTask(workspaceId, taskId, input)
+    return super.updateTask(workspaceId, taskId, input, options)
   }
 
   async deleteTask(workspaceId: string, taskId: string): Promise<void> {
@@ -1189,3 +1195,185 @@ test('model text cannot claim a task was created when only a draft exists', asyn
   assert.equal(String(body.reply).includes('создан'), false)
   assert.equal((body.proposal as Record<string, unknown>).type, 'create_task')
 })
+
+const UPDATE_MESSAGE =
+  'ОКСИ, перенеси задачу «Тест создания задачи ОКСИ» на пятницу и установи высокий приоритет'
+
+test('propose_update_task returns a diff card without writing', async () => {
+  isolateEnv()
+  const repo = new SpyRepo()
+  const owner = await seedCabinet(repo)
+  const task = await repo.createTask(owner.id, OWNER_A, {
+    title: 'Тест создания задачи ОКСИ',
+    description: 'оставить',
+    projectId: null,
+    dueAt: '2026-11-09T20:59:00.000Z',
+    priority: 'normal',
+  })
+  const createdBefore = repo.createTaskCalls
+  const { calls, transport } = mockTransport((request) => {
+    if (request.url === GIGACHAT_OAUTH_URL) return oauthOk()
+    const payload = chatPayload(request)
+    const last = payload.messages.at(-1)
+    if (last?.role === 'function') {
+      return stopReply('Задача изменена и сохранена.')
+    }
+    return functionCallReply('oxana_propose_update_task', {
+      title: 'программа похудения меня и сына',
+      due: 'tomorrow',
+      priority: 'low',
+      description: SECRET_DESCRIPTION,
+    })
+  })
+  const app = createApp({
+    oxanaRepo: repo,
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const response = await postChat(app, UPDATE_MESSAGE)
+  const body = await readJson(response)
+  assert.equal(response.status, 200)
+  assert.equal(body.reply, OXANA_UPDATE_PROPOSAL_REPLY)
+  assert.equal(String(body.reply).includes('Задача изменена'), false)
+  assert.equal(repo.createTaskCalls, createdBefore)
+  assert.equal(repo.updateTaskCalls, 0)
+  assert.equal(repo.deleteTaskCalls, 0)
+  const proposal = body.proposal as Record<string, unknown>
+  assert.equal(proposal.type, 'update_task')
+  assert.equal(proposal.taskId, task.id)
+  assert.deepEqual(proposal.fields, ['dueAt', 'priority'])
+  const next = proposal.next as Record<string, unknown>
+  const current = proposal.current as Record<string, unknown>
+  assert.equal(current.priority, 'normal')
+  assert.equal(next.priority, 'high')
+  assert.equal(next.dueLabel, 'пятница')
+  assert.equal(next.description, 'оставить')
+  assert.equal(JSON.stringify(body).includes(SECRET_DESCRIPTION), false)
+  const first = chatPayload(
+    calls.filter((item) => item.url === GIGACHAT_CHAT_URL)[0] as GigachatTransportRequest,
+  )
+  const functionNames = ((first.functions as Array<{ name: string }> | undefined) ?? []).map(
+    (item) => item.name,
+  )
+  assert.deepEqual(functionNames, ['oxana_propose_update_task'])
+  assert.equal(functionNames.includes('oxana_propose_create_task'), false)
+  assert.equal(functionNames.includes('oxana_list_tasks'), false)
+  const unchanged = await repo.getTask(owner.id, task.id)
+  assert.equal(unchanged.priority, 'normal')
+})
+
+test('ambiguous update titles ask the owner to choose', async () => {
+  isolateEnv()
+  const repo = new SpyRepo()
+  const owner = await seedCabinet(repo)
+  await repo.createTask(owner.id, OWNER_A, {
+    title: 'Тест создания задачи ОКСИ',
+    description: 'первая',
+    projectId: null,
+    dueAt: null,
+    priority: 'normal',
+  })
+  await repo.createTask(owner.id, OWNER_A, {
+    title: 'Тест создания задачи ОКСИ',
+    description: 'вторая',
+    projectId: null,
+    dueAt: null,
+    priority: 'low',
+  })
+  const { transport } = mockTransport((request) => {
+    if (request.url === GIGACHAT_OAUTH_URL) return oauthOk()
+    const payload = chatPayload(request)
+    const last = payload.messages.at(-1)
+    if (last?.role === 'function') {
+      return stopReply('Беру первую задачу.')
+    }
+    return functionCallReply('oxana_propose_update_task', {
+      title: 'Тест создания задачи ОКСИ',
+      due: 'friday',
+      priority: 'high',
+    })
+  })
+  const app = createApp({
+    oxanaRepo: repo,
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const body = await readJson(await postChat(app, UPDATE_MESSAGE))
+  assert.equal(body.reply, OXANA_CHOOSE_TASK_REPLY)
+  const proposal = body.proposal as Record<string, unknown>
+  assert.equal(proposal.type, 'choose_task')
+  assert.equal((proposal.matches as unknown[]).length, 2)
+  assert.equal(repo.updateTaskCalls, 0)
+})
+
+test('missing update target does not create a task', async () => {
+  isolateEnv()
+  const repo = new SpyRepo()
+  await seedCabinet(repo)
+  const createdBefore = repo.createTaskCalls
+  const { transport } = mockTransport((request) => {
+    if (request.url === GIGACHAT_OAUTH_URL) return oauthOk()
+    const payload = chatPayload(request)
+    const last = payload.messages.at(-1)
+    if (last?.role === 'function') {
+      return stopReply('Создам новую задачу вместо этой.')
+    }
+    return functionCallReply('oxana_propose_update_task', {
+      title: 'Тест создания задачи ОКСИ',
+      due: 'friday',
+      priority: 'high',
+    })
+  })
+  const app = createApp({
+    oxanaRepo: repo,
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const body = await readJson(await postChat(app, UPDATE_MESSAGE))
+  assert.equal(body.reply, OXANA_TASK_NOT_FOUND_REPLY)
+  assert.equal('proposal' in body, false)
+  assert.equal(repo.createTaskCalls, createdBefore)
+  assert.equal(repo.updateTaskCalls, 0)
+})
+
+test('update intent cannot execute create or a write function', async () => {
+  isolateEnv()
+  const repo = new SpyRepo()
+  const owner = await seedCabinet(repo)
+  await repo.createTask(owner.id, OWNER_A, {
+    title: 'Тест создания задачи ОКСИ',
+    description: null,
+    projectId: null,
+    dueAt: null,
+    priority: 'normal',
+  })
+  const createdBefore = repo.createTaskCalls
+  const { transport } = mockTransport((request) => {
+    if (request.url === GIGACHAT_OAUTH_URL) return oauthOk()
+    const payload = chatPayload(request)
+    const last = payload.messages.at(-1)
+    if (last?.role === 'function') {
+      return stopReply('Сохраняю без кнопки.')
+    }
+    return functionCallReply('oxana_propose_create_task', {
+      title: 'Тест создания задачи ОКСИ',
+      due: 'friday',
+      priority: 'high',
+    })
+  })
+  const app = createApp({
+    oxanaRepo: repo,
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const body = await readJson(await postChat(app, UPDATE_MESSAGE))
+  assert.equal(responseHasNoWrite(body, repo, createdBefore), true)
+})
+
+function responseHasNoWrite(
+  body: Record<string, unknown>,
+  repo: SpyRepo,
+  createdBefore: number,
+) {
+  assert.equal(repo.createTaskCalls, createdBefore)
+  assert.equal(repo.updateTaskCalls, 0)
+  assert.equal(repo.deleteTaskCalls, 0)
+  assert.equal((body.proposal as { type?: string } | undefined)?.type, undefined)
+  return true
+}

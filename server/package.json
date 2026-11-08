@@ -15,7 +15,7 @@
     "db:pii:test": "tsx --env-file=.env scripts/db-pii-test.ts",
     "db:pii:tls-test": "tsx --env-file=.env scripts/db-pii-tls-test.ts",
     "db:pii:network-test": "tsx --env-file=.env scripts/db-pii-network-test.ts",
-    "test": "tsx --test --test-concurrency=1 src/listen.test.ts src/safeLog.test.ts src/oxana/db.network.test.ts src/oxana/reminderScheduler.test.ts src/oxana/gigachat.test.ts src/oxana/taskDue.test.ts src/oxana/idempotency.test.ts src/oxana/aiPropose.test.ts src/oxana/aiOrchestrator.test.ts src/oxana/oxana.test.ts src/oxana/taskCreateIdempotency.pg.test.ts",
+    "test": "tsx --test --test-concurrency=1 src/listen.test.ts src/safeLog.test.ts src/oxana/db.network.test.ts src/oxana/reminderScheduler.test.ts src/oxana/gigachat.test.ts src/oxana/taskDue.test.ts src/oxana/idempotency.test.ts src/oxana/aiPropose.test.ts src/oxana/aiProposeUpdate.test.ts src/oxana/aiOrchestrator.test.ts src/oxana/oxana.test.ts src/oxana/taskCreateIdempotency.pg.test.ts",
     "test:oxana-db": "tsx scripts/oxana-local-db.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -101,13 +101,39 @@ export function extractQuotedTitle(message: string): string | null {
   return quoted || null
 }
 
-export function extractDueHint(message: string): 'today' | 'tomorrow' | null {
+export type DueHint =
+  | 'today'
+  | 'tomorrow'
+  | 'monday'
+  | 'tuesday'
+  | 'wednesday'
+  | 'thursday'
+  | 'friday'
+  | 'saturday'
+  | 'sunday'
+
+const WEEKDAY_HINTS: Array<[DueHint, RegExp]> = [
+  ['monday', /(^|[^а-яa-z])((в|на)\s+)?понедельник|\bmonday\b/i],
+  ['tuesday', /(^|[^а-яa-z])((в|на)\s+)?вторник|\btuesday\b/i],
+  ['wednesday', /(^|[^а-яa-z])((в|на)\s+)?сред[ауеы]|\bwednesday\b/i],
+  ['thursday', /(^|[^а-яa-z])((в|на)\s+)?четверг|\bthursday\b/i],
+  ['friday', /(^|[^а-яa-z])((в|на)\s+)?пятниц|\bfriday\b/i],
+  ['saturday', /(^|[^а-яa-z])((в|на)\s+)?суббот|\bsaturday\b/i],
+  ['sunday', /(^|[^а-яa-z])((в|на)\s+)?воскресень|\bsunday\b/i],
+]
+
+export function extractDueHint(message: string): DueHint | null {
   const text = message.toLowerCase()
   if (/(^|[^а-яa-z])завтра([^а-яa-z]|$)/i.test(text) || /\btomorrow\b/.test(text)) {
     return 'tomorrow'
   }
   if (/(^|[^а-яa-z])сегодня([^а-яa-z]|$)/i.test(text) || /\btoday\b/.test(text)) {
     return 'today'
+  }
+  for (const [hint, pattern] of WEEKDAY_HINTS) {
+    if (pattern.test(text)) {
+      return hint
+    }
   }
   return null
 }
@@ -284,7 +310,12 @@ export async function executeOxanaProposeCreateTask(
       ok: false,
       kind: 'rejected',
       proposal: null,
-      payload: { ok: false, error: due.error, created: false },
+      payload: {
+        ok: false,
+        error: due.error,
+        created: false,
+        ...(due.error === 'due_ambiguous' ? { weekday: due.weekday } : {}),
+      },
     }
   }
 

@@ -5,11 +5,13 @@ import { runOxanaCabinetChat } from './aiOrchestrator.js'
 import { createRequireOxanaOwner } from './auth.js'
 import { getOxanaReminderSchedulerStatus } from './reminderScheduler.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from './tokenVerifier.js'
+import { buildUpdateTaskProposal } from './aiProposeUpdate.js'
 import {
   OxanaAiAuthError,
   OxanaAiNotConfiguredError,
   OxanaAiRateLimitError,
   OxanaAiUnavailableError,
+  OxanaConflictError,
   OxanaDbUnavailableError,
   OxanaIdempotencyConflictError,
   OxanaNotFoundError,
@@ -22,8 +24,10 @@ import {
   parseProjectCreate,
   parseProjectPatch,
   parseSettingsPatch,
+  parseExpectedUpdatedAt,
   parseTaskCreate,
   parseTaskPatch,
+  parseTaskUpdateIntend,
 } from './validation.js'
 import type { OxanaRepository } from './types.js'
 
@@ -57,6 +61,16 @@ function jsonError(error: unknown): {
         ok: false,
         error: error.code,
         message: 'Этот ключ уже использован для другой задачи.',
+      },
+    }
+  }
+  if (error instanceof OxanaConflictError) {
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: error.code,
+        message: 'Задача изменилась. Обновите карточку, затем подтвердите снова.',
       },
     }
   }
@@ -216,21 +230,71 @@ export function createOxanaRouter(
     }
   })
 
+  app.post('/tasks/:id/propose-update', async (c) => {
+    const taskId = c.req.param('id')
+    if (!isUuid(taskId)) {
+      return c.json({ ok: false, error: 'invalid_task_id' }, 400)
+    }
+    const raw = await c.req.json().catch(() => null)
+    const record =
+      raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {}
+    const dueNeedsClarification = record.dueNeedsClarification === true
+    const dueAmbiguousWeekday = clampText(record.dueAmbiguousWeekday, 40) || undefined
+    const parsed = parseTaskUpdateIntend(raw)
+    if (
+      !parsed.ok &&
+      !(dueNeedsClarification && parsed.error === 'validation_failed')
+    ) {
+      return c.json({ ok: false, error: parsed.error }, 400)
+    }
+    const intend = parsed.ok ? parsed.data : {}
+    try {
+      const { userId, workspaceId } = await resolveWorkspace(
+        repo,
+        c.get('userId'),
+      )
+      const task = await repo.getTask(workspaceId, taskId)
+      if (task.archivedAt) {
+        throw new OxanaNotFoundError()
+      }
+      const settings = await repo.getSettings(workspaceId, userId)
+      return c.json({
+        ok: true,
+        proposal: buildUpdateTaskProposal(task, intend, settings.timezone, {
+          dueNeedsClarification,
+          dueAmbiguousWeekday,
+        }),
+      })
+    } catch (error) {
+      const mapped = jsonError(error)
+      return c.json(mapped.body, mapped.status)
+    }
+  })
+
   app.patch('/tasks/:id', async (c) => {
     const taskId = c.req.param('id')
     if (!isUuid(taskId)) {
       return c.json({ ok: false, error: 'invalid_task_id' }, 400)
     }
-    const parsed = parseTaskPatch(await c.req.json().catch(() => null))
+    const raw = await c.req.json().catch(() => null)
+    const parsed = parseTaskPatch(raw)
     if (!parsed.ok) {
       return c.json({ ok: false, error: parsed.error }, 400)
+    }
+    const expected = parseExpectedUpdatedAt(raw)
+    if (!expected.ok) {
+      return c.json({ ok: false, error: expected.error }, 400)
     }
     try {
       const { userId, workspaceId } = await resolveWorkspace(
         repo,
         c.get('userId'),
       )
-      const task = await repo.updateTask(workspaceId, taskId, parsed.data)
+      const task = await repo.updateTask(workspaceId, taskId, parsed.data, {
+        expectedUpdatedAt: expected.value,
+      })
       void repo.scheduleRemindersForTask(workspaceId, userId, task).catch(() => undefined)
       return c.json({ ok: true, task })
     } catch (error) {

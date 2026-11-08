@@ -205,6 +205,57 @@ export function parseTaskPatch(body: unknown):
   return { ok: true, data }
 }
 
+export function parseExpectedUpdatedAt(body: unknown):
+  | { ok: true; value: string | undefined }
+  | { ok: false; error: string } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { ok: true, value: undefined }
+  }
+  const record = body as Record<string, unknown>
+  if (
+    !Object.prototype.hasOwnProperty.call(record, 'expectedUpdatedAt') &&
+    !Object.prototype.hasOwnProperty.call(record, 'expected_updated_at')
+  ) {
+    return { ok: true, value: undefined }
+  }
+  const parsed = parseOptionalIso(
+    record.expectedUpdatedAt ?? record.expected_updated_at,
+    'invalid_expected_updated_at',
+  )
+  if (!parsed.ok) {
+    return parsed
+  }
+  return { ok: true, value: parsed.value ?? undefined }
+}
+
+export function parseTaskUpdateIntend(body: unknown):
+  | { ok: true; data: UpdateTaskInput }
+  | { ok: false; error: string } {
+  const parsed = parseTaskPatch(body)
+  if (!parsed.ok) {
+    return parsed
+  }
+  if (Object.prototype.hasOwnProperty.call(parsed.data, 'archivedAt')) {
+    return { ok: false, error: 'validation_failed' }
+  }
+  if (parsed.data.status === 'done' || parsed.data.status === 'cancelled') {
+    return { ok: false, error: 'invalid_status' }
+  }
+  const data: UpdateTaskInput = { ...parsed.data }
+  delete data.archivedAt
+  if (
+    data.title === undefined &&
+    !Object.prototype.hasOwnProperty.call(data, 'description') &&
+    !Object.prototype.hasOwnProperty.call(data, 'dueAt') &&
+    data.priority === undefined &&
+    data.status === undefined &&
+    !Object.prototype.hasOwnProperty.call(data, 'projectId')
+  ) {
+    return { ok: false, error: 'validation_failed' }
+  }
+  return { ok: true, data }
+}
+
 function parseIso(value: unknown, error: string): { ok: true; value: string } | { ok: false; error: string } {
   const raw = clampText(value, 40)
   if (!raw) {

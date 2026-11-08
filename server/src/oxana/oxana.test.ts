@@ -1260,3 +1260,352 @@ test('concurrent posts with the same idempotency key create one task', async () 
   assert.equal([201, 200].includes(first.status), true)
   assert.equal([201, 200].includes(second.status), true)
 })
+
+test('propose-update is workspace-scoped and does not write', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const tokenA = await signToken(OWNER_A)
+  const tokenB = await signToken(OWNER_B)
+  const created = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Тест создания задачи ОКСИ', priority: 'normal' }),
+    }),
+  )
+  const task = created.task as Record<string, unknown>
+  const proposal = await app.request(`/api/oxana/tasks/${task.id}/propose-update`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenA}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ dueAt: '2026-11-13T20:59:00.000Z', priority: 'high' }),
+  })
+  const proposalBody = await readJson(proposal)
+  assert.equal(proposal.status, 200)
+  const card = proposalBody.proposal as Record<string, unknown>
+  assert.equal(card.type, 'update_task')
+  assert.deepEqual(card.fields, ['dueAt', 'priority'])
+  const listed = await readJson(
+    await app.request('/api/oxana/tasks', {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }),
+  )
+  assert.equal((listed.tasks as Array<Record<string, unknown>>)[0]?.priority, 'normal')
+
+  const stolen = await app.request(`/api/oxana/tasks/${task.id}/propose-update`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokenB}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ priority: 'high' }),
+  })
+  assert.equal(stolen.status, 404)
+})
+
+test('task patch with expectedUpdatedAt rejects stale writes including identical retries', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const created = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Тест создания задачи ОКСИ', priority: 'normal' }),
+    }),
+  )
+  const task = created.task as Record<string, unknown>
+  const first = await app.request(`/api/oxana/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      dueAt: '2026-11-13T20:59:00.000Z',
+      priority: 'high',
+      expectedUpdatedAt: task.updatedAt,
+    }),
+  })
+  const firstBody = await readJson(first)
+  assert.equal(first.status, 200)
+  assert.equal((firstBody.task as Record<string, unknown>).priority, 'high')
+
+  const replay = await app.request(`/api/oxana/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      dueAt: '2026-11-13T20:59:00.000Z',
+      priority: 'high',
+      expectedUpdatedAt: task.updatedAt,
+    }),
+  })
+  const replayBody = await readJson(replay)
+  assert.equal(replay.status, 409)
+  assert.equal(replayBody.error, 'task_changed')
+  assert.equal((firstBody.task as Record<string, unknown>).priority, 'high')
+
+  const renamed = await readJson(
+    await app.request(`/api/oxana/tasks/${task.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Другое название' }),
+    }),
+  )
+  const conflict = await app.request(`/api/oxana/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      priority: 'urgent',
+      expectedUpdatedAt: (firstBody.task as Record<string, unknown>).updatedAt,
+    }),
+  })
+  const conflictBody = await readJson(conflict)
+  assert.equal(conflict.status, 409)
+  assert.equal(conflictBody.error, 'task_changed')
+  const current = await readJson(
+    await app.request('/api/oxana/tasks', {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+  )
+  const currentTask = (current.tasks as Array<Record<string, unknown>>)[0]
+  assert.equal(currentTask?.title, 'Другое название')
+  assert.equal(currentTask?.priority, 'high')
+  assert.equal(
+    (renamed.task as Record<string, unknown>).title,
+    'Другое название',
+  )
+})
+
+test('priority-only patch keeps due, status, project and description', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const dueAt = '2026-11-13T20:59:00.000Z'
+  const project = await readJson(
+    await app.request('/api/oxana/projects', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Кабинет ОКСИ' }),
+    }),
+  )
+  const projectId = (project.project as Record<string, unknown>).id as string
+  const created = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: 'Только приоритет',
+        description: 'не сбрасывать',
+        dueAt,
+        projectId,
+        priority: 'normal',
+      }),
+    }),
+  )
+  const task = created.task as Record<string, unknown>
+  const patched = await app.request(`/api/oxana/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      priority: 'high',
+      expectedUpdatedAt: task.updatedAt,
+    }),
+  })
+  const body = await readJson(patched)
+  const next = body.task as Record<string, unknown>
+  assert.equal(patched.status, 200)
+  assert.equal(next.priority, 'high')
+  assert.equal(next.dueAt, dueAt)
+  assert.equal(next.description, 'не сбрасывать')
+  assert.equal(next.status, 'open')
+  assert.equal(next.projectId, projectId)
+  assert.equal(next.title, 'Только приоритет')
+})
+
+test('due-only patch keeps title, status, project, priority and description', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const dueAt = '2026-11-13T20:59:00.000Z'
+  const nextDue = '2026-11-20T20:59:00.000Z'
+  const project = await readJson(
+    await app.request('/api/oxana/projects', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Кабинет ОКСИ' }),
+    }),
+  )
+  const projectId = (project.project as Record<string, unknown>).id as string
+  const created = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: 'Только срок',
+        description: 'не сбрасывать',
+        dueAt,
+        projectId,
+        priority: 'high',
+      }),
+    }),
+  )
+  const task = created.task as Record<string, unknown>
+  const patched = await app.request(`/api/oxana/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      dueAt: nextDue,
+      expectedUpdatedAt: task.updatedAt,
+    }),
+  })
+  const body = await readJson(patched)
+  const next = body.task as Record<string, unknown>
+  assert.equal(patched.status, 200)
+  assert.equal(next.dueAt, nextDue)
+  assert.equal(next.priority, 'high')
+  assert.equal(next.description, 'не сбрасывать')
+  assert.equal(next.status, 'open')
+  assert.equal(next.projectId, projectId)
+  assert.equal(next.title, 'Только срок')
+})
+
+test('stale proposal cannot apply a different patch after a later change', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const created = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Конфликт содержимого', priority: 'normal' }),
+    }),
+  )
+  const task = created.task as Record<string, unknown>
+  const first = await readJson(
+    await app.request(`/api/oxana/tasks/${task.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        priority: 'high',
+        expectedUpdatedAt: task.updatedAt,
+      }),
+    }),
+  )
+  const stale = await app.request(`/api/oxana/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      priority: 'urgent',
+      expectedUpdatedAt: task.updatedAt,
+    }),
+  })
+  const staleBody = await readJson(stale)
+  assert.equal(stale.status, 409)
+  assert.equal(staleBody.error, 'task_changed')
+  assert.equal((first.task as Record<string, unknown>).priority, 'high')
+})
+
+test('identical stale patch after a later unrelated change is a conflict', async () => {
+  const app = createApp({ oxanaRepo: new MemoryOxanaRepo() })
+  const token = await signToken(OWNER_A)
+  const created = await readJson(
+    await app.request('/api/oxana/tasks', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Исходное имя', priority: 'normal' }),
+    }),
+  )
+  const task = created.task as Record<string, unknown>
+  const first = await readJson(
+    await app.request(`/api/oxana/tasks/${task.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        priority: 'high',
+        expectedUpdatedAt: task.updatedAt,
+      }),
+    }),
+  )
+  assert.equal(
+    (
+      await app.request(`/api/oxana/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title: 'Имя с вкладки Задачи' }),
+      })
+    ).status,
+    200,
+  )
+  const staleIdentical = await app.request(`/api/oxana/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      priority: 'high',
+      expectedUpdatedAt: task.updatedAt,
+    }),
+  })
+  const staleBody = await readJson(staleIdentical)
+  assert.equal(staleIdentical.status, 409)
+  assert.equal(staleBody.error, 'task_changed')
+  const listed = await readJson(
+    await app.request('/api/oxana/tasks', {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+  )
+  const current = (listed.tasks as Array<Record<string, unknown>>)[0]
+  assert.equal(current?.title, 'Имя с вкладки Задачи')
+  assert.equal(current?.priority, 'high')
+  assert.equal((first.task as Record<string, unknown>).priority, 'high')
+})

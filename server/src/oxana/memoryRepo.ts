@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { OxanaIdempotencyConflictError, OxanaNotFoundError } from './errors.js'
+import {
+  OxanaConflictError,
+  OxanaIdempotencyConflictError,
+  OxanaNotFoundError,
+} from './errors.js'
+import { resolveTaskUpdateGuard } from './taskPatch.js'
 import {
   hashTaskCreateInput,
   taskCreateKeyMapId,
@@ -22,6 +27,7 @@ import type {
   UpdateEventInput,
   UpdateProjectInput,
   UpdateTaskInput,
+  UpdateTaskOptions,
 } from './types.js'
 
 export class MemoryOxanaRepo implements OxanaRepository {
@@ -193,10 +199,24 @@ export class MemoryOxanaRepo implements OxanaRepository {
     workspaceId: string,
     taskId: string,
     input: UpdateTaskInput,
+    options?: UpdateTaskOptions,
   ): Promise<OxanaTask> {
     const task = this.tasks.get(taskId)
     if (!task || task.workspaceId !== workspaceId) {
       throw new OxanaNotFoundError()
+    }
+    if (options?.expectedUpdatedAt) {
+      const guard = resolveTaskUpdateGuard(
+        task,
+        input,
+        options.expectedUpdatedAt,
+      )
+      if (guard === 'replay') {
+        return this.withProjectTitle(task)
+      }
+      if (guard === 'conflict') {
+        throw new OxanaConflictError()
+      }
     }
     if (input.projectId) {
       const project = this.projects.get(input.projectId)
@@ -204,6 +224,10 @@ export class MemoryOxanaRepo implements OxanaRepository {
         throw new OxanaNotFoundError()
       }
     }
+    const previousStamp = new Date(task.updatedAt).getTime()
+    const nextStamp = Number.isNaN(previousStamp)
+      ? Date.now()
+      : Math.max(Date.now(), previousStamp + 1)
     const updated: OxanaTask = {
       ...task,
       status: input.status ?? task.status,
@@ -221,7 +245,7 @@ export class MemoryOxanaRepo implements OxanaRepository {
       archivedAt: Object.prototype.hasOwnProperty.call(input, 'archivedAt')
         ? (input.archivedAt ?? null)
         : task.archivedAt,
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date(nextStamp).toISOString(),
     }
     updated.projectTitle = this.projectTitle(workspaceId, updated.projectId)
     this.tasks.set(taskId, updated)
