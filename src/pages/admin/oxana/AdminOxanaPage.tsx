@@ -16,7 +16,11 @@ import {
   type OxanaChatTurn,
 } from '../../../utils/oxanaChatSession'
 import { oxanaErrorMessage } from '../../../utils/oxanaErrors'
-import { DEFAULT_OXANA_TIMEZONE } from '../../../utils/oxanaTime'
+import {
+  DEFAULT_OXANA_TIMEZONE,
+  formatOxanaChatTimestamp,
+  msUntilNextOxanaMidnight,
+} from '../../../utils/oxanaTime'
 import { OxanaCalendarPanel } from './OxanaCalendarPanel'
 import { OxanaNotificationsPanel } from './OxanaNotificationsPanel'
 import { OxanaOverviewPanel } from './OxanaOverviewPanel'
@@ -239,7 +243,7 @@ function ChatPanel({
     () => loadOxanaChatSession(userId).message,
   )
   const [sending, setSending] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const [turns, setTurns] = useState<OxanaChatTurn[]>(
     () => loadOxanaChatSession(userId).turns,
   )
@@ -252,8 +256,16 @@ function ChatPanel({
     setTurns(loaded.turns)
     setMessage(loaded.message)
     setSending(false)
-    setNotice(null)
   }, [userId])
+
+  useEffect(() => {
+    const delay = Math.min(
+      msUntilNextOxanaMidnight(new Date(nowMs), DEFAULT_OXANA_TIMEZONE),
+      2_147_000_000,
+    )
+    const timer = window.setTimeout(() => setNowMs(Date.now()), delay)
+    return () => window.clearTimeout(timer)
+  }, [nowMs])
 
   useEffect(() => {
     if (skipNextSave.current) {
@@ -293,17 +305,18 @@ function ChatPanel({
       return
     }
     setSending(true)
-    setNotice(null)
     setMessage('')
+    const sentAt = new Date().toISOString()
     setTurns((current) => [
       ...current.map((turn) =>
         turn.role === 'assistant' && turn.proposalStatus === 'open'
           ? { ...turn, proposalStatus: 'cancelled' as const }
           : turn,
       ),
-      { role: 'user', text },
+      { role: 'user', text, sentAt },
     ])
     const result = await sendOxanaChat(token, text)
+    const receivedAt = new Date().toISOString()
     setSending(false)
     if (result.ok) {
       const proposal = result.data.proposal
@@ -312,6 +325,7 @@ function ChatPanel({
         {
           role: 'assistant',
           text: result.data.reply,
+          sentAt: receivedAt,
           proposal,
           proposalStatus: proposal ? 'open' : undefined,
           idempotencyKey:
@@ -322,7 +336,10 @@ function ChatPanel({
       ])
       return
     }
-    setNotice(result.error)
+    setTurns((current) => [
+      ...current,
+      { role: 'assistant', text: result.error, sentAt: receivedAt },
+    ])
   }
 
   return (
@@ -341,6 +358,11 @@ function ChatPanel({
         ) : (
           turns.map((turn, index) => {
             const mine = turn.role === 'user'
+            const stamp = formatOxanaChatTimestamp(
+              turn.sentAt,
+              new Date(nowMs),
+              DEFAULT_OXANA_TIMEZONE,
+            )
             return (
               <div key={`${turn.role}-${index}`} className="flex flex-col gap-2">
                 <div
@@ -348,8 +370,19 @@ function ChatPanel({
                     mine ? 'ml-auto items-end' : 'mr-auto items-start'
                   }`}
                 >
-                  <p className="mb-0.5 px-1 text-[10px] font-medium tracking-[0.06em] text-muted uppercase">
-                    {mine ? 'Вы' : 'ОКСИ'}
+                  <p
+                    className={`mb-0.5 flex items-baseline gap-1.5 px-1 ${
+                      mine ? 'justify-end' : 'justify-start'
+                    }`}
+                  >
+                    <span className="text-[10px] font-medium tracking-[0.06em] text-muted uppercase">
+                      {mine ? 'Вы' : 'ОКСИ'}
+                    </span>
+                    {stamp ? (
+                      <span className="text-[10px] font-normal normal-case tracking-normal text-muted">
+                        {stamp}
+                      </span>
+                    ) : null}
                   </p>
                   <div
                     className={`whitespace-pre-wrap px-3 py-2 text-sm leading-relaxed text-ink ${
@@ -458,14 +491,6 @@ function ChatPanel({
         ) : null}
         <div ref={bottomRef} />
       </div>
-      {notice ? (
-        <p
-          className="mx-3 mb-2 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-ink sm:mx-4"
-          role="status"
-        >
-          {notice}
-        </p>
-      ) : null}
       <form
         className="flex items-end gap-2 border-t border-border bg-bg/40 px-3 py-2.5 sm:px-4"
         onSubmit={(event) => void handleSubmit(event)}

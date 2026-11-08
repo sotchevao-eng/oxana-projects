@@ -136,3 +136,47 @@ export function formatOxanaMonthTitle(date: Date, timeZone: string): string {
 export function isSameZonedDay(a: Date, b: Date, timeZone: string): boolean {
   return zonedParts(a, timeZone).dateKey === zonedParts(b, timeZone).dateKey
 }
+
+export function parseOxanaChatSentAt(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  const date = new Date(trimmed)
+  if (Number.isNaN(date.getTime())) {
+    return undefined
+  }
+  return date.toISOString()
+}
+
+export function formatOxanaChatTimestamp(
+  iso: string | null | undefined,
+  now: Date = new Date(),
+  timeZone = DEFAULT_OXANA_TIMEZONE,
+): string | null {
+  const sentAt = parseOxanaChatSentAt(iso)
+  if (!sentAt) {
+    return null
+  }
+  const zone = normalizeOxanaTimezone(timeZone)
+  const at = new Date(sentAt)
+  const parts = zonedParts(at, zone)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const clock = `${pad(parts.hour)}:${pad(parts.minute)}`
+  if (isSameZonedDay(at, now, zone)) {
+    return clock
+  }
+  return `${pad(parts.day)}.${pad(parts.month)}.${parts.year} ${clock}`
+}
+
+export function msUntilNextOxanaMidnight(
+  now: Date = new Date(),
+  timeZone = DEFAULT_OXANA_TIMEZONE,
+): number {
+  const zone = normalizeOxanaTimezone(timeZone)
+  const next = addDays(startOfZonedDay(now, zone), 1)
+  return Math.max(1, next.getTime() - now.getTime())
+}

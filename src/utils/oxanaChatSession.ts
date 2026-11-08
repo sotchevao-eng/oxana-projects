@@ -9,6 +9,7 @@ import type {
   OxanaUpdateTaskIntend,
   OxanaUpdateTaskProposal,
 } from '../types/oxana'
+import { parseOxanaChatSentAt } from './oxanaTime'
 
 export const OXANA_CHAT_SESSION_PREFIX = 'oxana.cabinet.chat.v1:'
 export const OXANA_CHAT_SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000
@@ -39,10 +40,11 @@ export type OxanaChatProposalStatus =
   | 'cancelled'
 
 export type OxanaChatTurn =
-  | { role: 'user'; text: string }
+  | { role: 'user'; text: string; sentAt?: string }
   | {
       role: 'assistant'
       text: string
+      sentAt?: string
       proposal?: OxanaChatProposal
       proposalStatus?: OxanaChatProposalStatus
       proposalError?: string | null
@@ -303,8 +305,9 @@ function parseTurn(raw: unknown): OxanaChatTurn | null {
   if (!text) {
     return null
   }
+  const sentAt = parseOxanaChatSentAt(raw.sentAt)
   if (raw.role === 'user') {
-    return { role: 'user', text }
+    return sentAt ? { role: 'user', text, sentAt } : { role: 'user', text }
   }
   if (raw.role !== 'assistant') {
     return null
@@ -315,6 +318,7 @@ function parseTurn(raw: unknown): OxanaChatTurn | null {
   return {
     role: 'assistant',
     text,
+    ...(sentAt ? { sentAt } : {}),
     proposal,
     proposalStatus,
     proposalError: optionalText(raw.proposalError),
@@ -395,12 +399,18 @@ export function saveOxanaChatSession(
     savedAt: now,
     message: clampText(state.message),
     turns: state.turns.slice(-MAX_TURNS).map((turn) => {
+      const sentAt = parseOxanaChatSentAt(turn.sentAt)
       if (turn.role === 'user') {
-        return { role: 'user', text: clampText(turn.text) }
+        return {
+          role: 'user',
+          text: clampText(turn.text),
+          ...(sentAt ? { sentAt } : {}),
+        }
       }
       return {
         role: 'assistant',
         text: clampText(turn.text),
+        ...(sentAt ? { sentAt } : {}),
         proposal: turn.proposal,
         proposalStatus: normalizeProposalStatus(turn.proposalStatus),
         proposalError: turn.proposalError ?? null,

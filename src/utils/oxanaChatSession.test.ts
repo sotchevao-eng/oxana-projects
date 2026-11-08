@@ -176,6 +176,59 @@ test('confirmed proposals stay confirmed and are not reopened', () => {
   }
 })
 
+test('sentAt is stored and restored, missing timestamps stay empty', () => {
+  const storage = new MemoryStorage()
+  const userSentAt = '2026-11-08T17:44:00.000Z'
+  const replySentAt = '2026-11-08T17:45:12.000Z'
+  saveOxanaChatSession(
+    USER_A,
+    {
+      turns: [
+        { role: 'user', text: 'перенеси задачу', sentAt: userSentAt },
+        { ...updateTurn(), sentAt: replySentAt },
+        { role: 'user', text: 'старое без времени' },
+      ],
+      message: '',
+    },
+    storage,
+  )
+  const loaded = loadOxanaChatSession(USER_A, storage)
+  assert.equal(loaded.turns[0]?.role, 'user')
+  assert.equal(loaded.turns[0]?.sentAt, userSentAt)
+  assert.equal(loaded.turns[1]?.role, 'assistant')
+  if (loaded.turns[1]?.role === 'assistant') {
+    assert.equal(loaded.turns[1].sentAt, replySentAt)
+    assert.equal(loaded.turns[1].proposal?.type, 'update_task')
+    assert.equal(loaded.turns[1].proposalStatus, 'open')
+  }
+  assert.equal(loaded.turns[2]?.sentAt, undefined)
+  const raw = JSON.parse(storage.getItem(oxanaChatSessionKey(USER_A)) ?? '{}') as {
+    turns: Array<Record<string, unknown>>
+  }
+  assert.equal(Object.prototype.hasOwnProperty.call(raw.turns[2], 'sentAt'), false)
+})
+
+test('invalid sentAt is dropped instead of inventing a date', () => {
+  const now = Date.now()
+  const parsed = parseOxanaChatSession(
+    {
+      version: 1,
+      userId: USER_A,
+      savedAt: now,
+      message: '',
+      turns: [
+        { role: 'user', text: 'без даты' },
+        { role: 'assistant', text: 'ошибка сети', sentAt: 'не время' },
+      ],
+    },
+    USER_A,
+    now,
+  )
+  assert.equal(parsed?.turns[0]?.sentAt, undefined)
+  assert.equal(parsed?.turns[1]?.sentAt, undefined)
+  assert.equal(parsed?.turns[1]?.text, 'ошибка сети')
+})
+
 test('stored payload has no tokens or secrets', () => {
   const storage = new MemoryStorage()
   saveOxanaChatSession(
