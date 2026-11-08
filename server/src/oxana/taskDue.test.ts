@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { resolveProposedDueAt } from './taskDue.js'
+import { extractCalendarDueToken, resolveProposedDueAt } from './taskDue.js'
 
 test('tomorrow is computed in Europe/Moscow from the server clock', () => {
   const now = new Date('2026-11-07T16:00:00.000Z')
@@ -50,6 +50,34 @@ test('friday is the next Friday in Europe/Moscow', () => {
   if (!saturday.ok) return
   assert.equal(saturday.dueLabel, 'пятница')
   assert.equal(saturday.dueAt, '2026-11-13T20:59:00.000Z')
+})
+
+test('Russian calendar date with time is Europe/Moscow wall time', () => {
+  const token = extractCalendarDueToken(
+    'ОКСИ, найди задачу „Тест создания задачи ОКСИ“ и перенеси срок на 13 ноября 2026 года, 18:00. Покажи изменения для подтверждения, ничего не сохраняй',
+  )
+  assert.equal(token, '2026-11-13T18:00')
+  const resolved = resolveProposedDueAt(
+    token,
+    'Europe/Moscow',
+    new Date('2026-11-07T16:00:00.000Z'),
+  )
+  assert.equal(resolved.ok, true)
+  if (!resolved.ok) return
+  assert.equal(resolved.dueAt, '2026-11-13T15:00:00.000Z')
+  assert.equal(resolved.dueLabel?.includes('13 ноября'), true)
+  assert.equal(resolved.dueLabel?.includes('18:00'), true)
+})
+
+test('naive local datetime without Z is accepted as owner timezone', () => {
+  const resolved = resolveProposedDueAt(
+    '2026-11-13T18:00',
+    'Europe/Moscow',
+    new Date('2026-11-07T16:00:00.000Z'),
+  )
+  assert.equal(resolved.ok, true)
+  if (!resolved.ok) return
+  assert.equal(resolved.dueAt, '2026-11-13T15:00:00.000Z')
 })
 
 test('friday is ambiguous when today is already Friday', () => {

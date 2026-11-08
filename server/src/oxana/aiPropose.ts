@@ -1,6 +1,6 @@
 import { titleForExternalModel } from './aiTools.js'
 import type { GigachatFunctionDefinition } from './gigachatClient.js'
-import { resolveProposedDueAt } from './taskDue.js'
+import { extractCalendarDueToken, resolveProposedDueAt } from './taskDue.js'
 import type { OxanaRepository, OxanaTaskPriority } from './types.js'
 import { clampText, isUuid } from './validation.js'
 
@@ -52,7 +52,7 @@ export function oxanaProposeFunctionDefinition(): GigachatFunctionDefinition {
         due: {
           type: 'string',
           description:
-            'Срок: today, tomorrow, none или календарная дата YYYY-MM-DD. Не передавай ISO datetime.',
+            'Срок: today, tomorrow, none, YYYY-MM-DD или YYYY-MM-DDTHH:mm по часовому поясу владельца. Не передавай ISO datetime с Z.',
         },
         priority: {
           type: 'string',
@@ -96,7 +96,7 @@ export function looksLikeTaskCreateRequest(message: string): boolean {
 }
 
 export function extractQuotedTitle(message: string): string | null {
-  const match = message.match(/[«“„"']([^«“„"'»”\n]{2,200})[»”"']/)
+  const match = message.match(/[«“„"']([^«“„"'»”\n]{2,200})[»”“"']/)
   const quoted = clampText(match?.[1], 200)
   return quoted || null
 }
@@ -143,7 +143,10 @@ export function coerceDueInput(raw: unknown): unknown {
     return raw
   }
   const hint = extractDueHint(raw)
-  return hint ?? raw
+  if (hint) {
+    return hint
+  }
+  return extractCalendarDueToken(raw) ?? raw
 }
 
 export function resolveProposalTitle(
@@ -296,15 +299,14 @@ export async function executeOxanaProposeCreateTask(
     context.userId,
   )
   const now = context.now ?? new Date()
-  const dueHint = extractDueHint(context.userMessage)
-  let due = resolveProposedDueAt(
-    coerceDueInput(args.due ?? args.dueAt ?? args.due_at),
+  const ownerDue =
+    extractCalendarDueToken(context.userMessage) ??
+    extractDueHint(context.userMessage)
+  const due = resolveProposedDueAt(
+    ownerDue ?? coerceDueInput(args.due ?? args.dueAt ?? args.due_at),
     settings.timezone,
     now,
   )
-  if ((!due.ok || due.dueAt === null) && dueHint) {
-    due = resolveProposedDueAt(dueHint, settings.timezone, now)
-  }
   if (!due.ok) {
     return {
       ok: false,

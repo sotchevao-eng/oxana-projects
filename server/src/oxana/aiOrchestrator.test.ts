@@ -20,6 +20,7 @@ import {
   OXANA_DATA_UNAVAILABLE_REPLY,
   type GigachatTransportRequest,
 } from './gigachatClient.js'
+import { OXANA_INVALID_DUE_REPLY } from './taskDue.js'
 import { MemoryOxanaRepo } from './memoryRepo.js'
 import type {
   OxanaEvent,
@@ -1364,6 +1365,109 @@ test('update intent cannot execute create or a write function', async () => {
   })
   const body = await readJson(await postChat(app, UPDATE_MESSAGE))
   assert.equal(responseHasNoWrite(body, repo, createdBefore), true)
+})
+
+const LIVE_UPDATE_MESSAGE =
+  'ОКСИ, найди задачу „Тест создания задачи ОКСИ“ и перенеси срок на 13 ноября 2026 года, 18:00. Покажи изменения для подтверждения, ничего не сохраняй'
+
+test('Russian calendar due from the owner message returns a diff card without writing', async () => {
+  isolateEnv()
+  const repo = new SpyRepo()
+  const owner = await seedCabinet(repo)
+  const task = await repo.createTask(owner.id, OWNER_A, {
+    title: 'Тест создания задачи ОКСИ',
+    description: 'оставить',
+    projectId: null,
+    dueAt: '2026-11-09T20:59:00.000Z',
+    priority: 'normal',
+  })
+  const createdBefore = repo.createTaskCalls
+  const { calls, transport } = mockTransport((request) => {
+    if (request.url === GIGACHAT_OAUTH_URL) return oauthOk()
+    const payload = chatPayload(request)
+    const last = payload.messages.at(-1)
+    if (last?.role === 'function') {
+      return stopReply(
+        'Не удалось обновить задачу. Проверьте правильность указанного срока и попробуйте снова',
+      )
+    }
+    return functionCallReply('oxana_propose_update_task', {
+      title: 'программа похудения меня и сына',
+      due: '2026-11-13T18:00:00.000Z',
+    })
+  })
+  const app = createApp({
+    oxanaRepo: repo,
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const body = await readJson(await postChat(app, LIVE_UPDATE_MESSAGE))
+  assert.equal(body.reply, OXANA_UPDATE_PROPOSAL_REPLY)
+  assert.equal(String(body.reply).includes('Не удалось обновить задачу'), false)
+  assert.equal(String(body.reply).includes('обновлен'), false)
+  assert.equal(repo.createTaskCalls, createdBefore)
+  assert.equal(repo.updateTaskCalls, 0)
+  const proposal = body.proposal as Record<string, unknown>
+  assert.equal(proposal.type, 'update_task')
+  assert.equal(proposal.taskId, task.id)
+  const current = proposal.current as Record<string, unknown>
+  const next = proposal.next as Record<string, unknown>
+  assert.equal(current.dueAt, '2026-11-09T20:59:00.000Z')
+  assert.equal(next.dueAt, '2026-11-13T15:00:00.000Z')
+  assert.equal(String(next.dueLabel).includes('13 ноября'), true)
+  assert.equal(String(next.dueLabel).includes('18:00'), true)
+  const unchanged = await repo.getTask(owner.id, task.id)
+  assert.equal(unchanged.dueAt, task.dueAt)
+  const first = chatPayload(
+    calls.filter((item) => item.url === GIGACHAT_CHAT_URL)[0] as GigachatTransportRequest,
+  )
+  const functionNames = ((first.functions as Array<{ name: string }> | undefined) ?? []).map(
+    (item) => item.name,
+  )
+  assert.deepEqual(functionNames, ['oxana_propose_update_task'])
+})
+
+test('invalid due keeps a server-owned reply and does not claim an update', async () => {
+  isolateEnv()
+  const repo = new SpyRepo()
+  const owner = await seedCabinet(repo)
+  const task = await repo.createTask(owner.id, OWNER_A, {
+    title: 'Тест создания задачи ОКСИ',
+    description: null,
+    projectId: null,
+    dueAt: '2026-11-09T20:59:00.000Z',
+    priority: 'normal',
+  })
+  const { transport } = mockTransport((request) => {
+    if (request.url === GIGACHAT_OAUTH_URL) return oauthOk()
+    const payload = chatPayload(request)
+    const last = payload.messages.at(-1)
+    if (last?.role === 'function') {
+      return stopReply(
+        'Не удалось обновить задачу. Проверьте правильность указанного срока и попробуйте снова',
+      )
+    }
+    return functionCallReply('oxana_propose_update_task', {
+      title: 'Тест создания задачи ОКСИ',
+      due: '2026-02-30',
+    })
+  })
+  const app = createApp({
+    oxanaRepo: repo,
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const body = await readJson(
+    await postChat(
+      app,
+      'ОКСИ, найди задачу „Тест создания задачи ОКСИ“ и перенеси срок на 30 февраля 2026 года, 18:00',
+    ),
+  )
+  assert.equal(body.reply, OXANA_INVALID_DUE_REPLY)
+  assert.equal(String(body.reply).includes('Не удалось обновить задачу'), false)
+  assert.equal(String(body.reply).includes('обновлен'), false)
+  assert.equal('proposal' in body, false)
+  assert.equal(repo.updateTaskCalls, 0)
+  const unchanged = await repo.getTask(owner.id, task.id)
+  assert.equal(unchanged.dueAt, task.dueAt)
 })
 
 function responseHasNoWrite(

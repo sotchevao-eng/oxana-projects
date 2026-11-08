@@ -27,7 +27,7 @@ import {
   type GigachatChatMessage,
   type GigachatFunctionDefinition,
 } from './gigachatClient.js'
-import { dueAmbiguousReply } from './taskDue.js'
+import { dueAmbiguousReply, OXANA_INVALID_DUE_REPLY } from './taskDue.js'
 import type { OxanaRepository } from './types.js'
 
 export type OxanaCabinetProposal = OxanaCreateTaskProposal | OxanaChatProposal
@@ -67,6 +67,7 @@ export async function runOxanaCabinetChat(options: {
   let dataFailed = false
   let proposal: OxanaCabinetProposal | undefined
   let notFound = false
+  let invalidDue = false
   let dueAmbiguousWeekday: string | null = null
 
   for (let round = 0; round <= MAX_FUNCTION_ROUNDS; round += 1) {
@@ -80,6 +81,7 @@ export async function runOxanaCabinetChat(options: {
       return finalizeChat({
         proposal,
         notFound,
+        invalidDue,
         dataFailed,
         dueAmbiguousWeekday,
         reply: '',
@@ -92,6 +94,7 @@ export async function runOxanaCabinetChat(options: {
         return finalizeChat({
           proposal,
           notFound,
+          invalidDue,
           dataFailed,
           dueAmbiguousWeekday,
           reply: '',
@@ -165,6 +168,10 @@ export async function runOxanaCabinetChat(options: {
         }
       }
 
+      if (payload.error === 'invalid_due_at') {
+        invalidDue = true
+      }
+
       messages.push({
         role: 'assistant',
         content: result.content,
@@ -183,6 +190,7 @@ export async function runOxanaCabinetChat(options: {
     return finalizeChat({
       proposal,
       notFound,
+      invalidDue,
       dataFailed,
       dueAmbiguousWeekday,
       reply,
@@ -193,6 +201,7 @@ export async function runOxanaCabinetChat(options: {
   return finalizeChat({
     proposal,
     notFound,
+    invalidDue,
     dataFailed,
     dueAmbiguousWeekday,
     reply: '',
@@ -203,6 +212,7 @@ export async function runOxanaCabinetChat(options: {
 function finalizeChat(options: {
   proposal?: OxanaCabinetProposal
   notFound: boolean
+  invalidDue: boolean
   dataFailed: boolean
   dueAmbiguousWeekday: string | null
   reply: string
@@ -225,6 +235,9 @@ function finalizeChat(options: {
   }
   if (options.notFound) {
     return { reply: OXANA_TASK_NOT_FOUND_REPLY }
+  }
+  if (options.invalidDue) {
+    return { reply: OXANA_INVALID_DUE_REPLY }
   }
   if (options.dueAmbiguousWeekday) {
     return { reply: dueAmbiguousReply(options.dueAmbiguousWeekday) }

@@ -176,6 +176,41 @@ test('create phrasing is not treated as an update request', () => {
   )
 })
 
+const LIVE_UPDATE_MESSAGE =
+  'ОКСИ, найди задачу „Тест создания задачи ОКСИ“ и перенеси срок на 13 ноября 2026 года, 18:00. Покажи изменения для подтверждения, ничего не сохраняй'
+
+test('owner Russian calendar due is proposed without writing', async () => {
+  assert.equal(looksLikeTaskUpdateRequest(LIVE_UPDATE_MESSAGE), true)
+  const { repo, owner, task } = await seedOwnerTask()
+  const result = await executeOxanaProposeUpdateTask(
+    {
+      title: 'программа похудения меня и сына',
+      due: '2026-11-13T18:00:00.000Z',
+    },
+    {
+      repo,
+      workspaceId: owner.id,
+      userId: OWNER,
+      userMessage: LIVE_UPDATE_MESSAGE,
+      now: NOW,
+    },
+  )
+  assert.equal(result.kind, 'proposal')
+  assert.equal(result.proposal?.type, 'update_task')
+  if (result.proposal?.type !== 'update_task') return
+  assert.equal(result.proposal.taskId, task.id)
+  assert.deepEqual(result.proposal.fields, ['dueAt'])
+  assert.equal(result.proposal.current.dueAt, task.dueAt)
+  assert.equal(result.proposal.next.dueAt, '2026-11-13T15:00:00.000Z')
+  assert.equal(result.proposal.next.dueLabel?.includes('13 ноября'), true)
+  assert.equal(result.proposal.next.dueLabel?.includes('18:00'), true)
+  assert.equal(result.payload.created, false)
+  assert.equal(result.payload.updated, false)
+  assert.equal(result.payload.error, undefined)
+  const listed = await repo.listTasks(owner.id)
+  assert.equal(listed[0]?.dueAt, task.dueAt)
+})
+
 test('friday today does not guess a due date', async () => {
   const { repo, owner } = await seedOwnerTask()
   const result = await executeOxanaProposeUpdateTask(

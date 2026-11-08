@@ -28,6 +28,12 @@ test('create-task phrasing is detected without treating a list question as creat
     ),
     false,
   )
+  assert.equal(
+    looksLikeTaskCreateRequest(
+      'ОКСИ, найди задачу „Тест создания задачи ОКСИ“ и перенеси срок на 13 ноября 2026 года, 18:00. Покажи изменения для подтверждения, ничего не сохраняй',
+    ),
+    false,
+  )
 })
 
 test('update-task phrasing is distinct from create', () => {
@@ -37,10 +43,22 @@ test('update-task phrasing is distinct from create', () => {
   assert.equal(looksLikeTaskUpdateRequest(USER_MESSAGE), false)
   assert.equal(looksLikeTaskUpdateRequest('Какие у меня задачи?'), false)
   assert.equal(extractDueHint(updateMessage), 'friday')
+  assert.equal(
+    looksLikeTaskUpdateRequest(
+      'ОКСИ, найди задачу „Тест создания задачи ОКСИ“ и перенеси срок на 13 ноября 2026 года, 18:00. Покажи изменения для подтверждения, ничего не сохраняй',
+    ),
+    true,
+  )
 })
 
 test('quoted title from the current message wins over an existing task title', () => {
   assert.equal(extractQuotedTitle(USER_MESSAGE), 'Тест создания задачи ОКСИ')
+  assert.equal(
+    extractQuotedTitle(
+      'ОКСИ, найди задачу „Тест создания задачи ОКСИ“ и перенеси срок на 13 ноября 2026 года, 18:00. Покажи изменения для подтверждения, ничего не сохраняй',
+    ),
+    'Тест создания задачи ОКСИ',
+  )
   assert.equal(
     resolveProposalTitle(USER_MESSAGE, 'программа похудения меня и сына', [
       'программа похудения меня и сына',

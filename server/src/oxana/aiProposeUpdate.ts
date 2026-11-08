@@ -7,7 +7,11 @@ import {
   resolveProposalDescription,
 } from './aiPropose.js'
 import type { GigachatFunctionDefinition } from './gigachatClient.js'
-import { formatDueLabel, resolveProposedDueAt } from './taskDue.js'
+import {
+  extractCalendarDueToken,
+  formatDueLabel,
+  resolveProposedDueAt,
+} from './taskDue.js'
 import type {
   OxanaRepository,
   OxanaTask,
@@ -106,7 +110,7 @@ export function oxanaProposeUpdateFunctionDefinition(): GigachatFunctionDefiniti
         due: {
           type: 'string',
           description:
-            'Новый срок, только если владелец его указал: today, tomorrow, monday-sunday или YYYY-MM-DD. Не передавай ISO datetime.',
+            'Новый срок, только если владелец его указал: today, tomorrow, monday-sunday, YYYY-MM-DD или YYYY-MM-DDTHH:mm по часовому поясу владельца. Не передавай ISO datetime с Z.',
         },
         priority: {
           type: 'string',
@@ -335,9 +339,10 @@ async function resolveIntend(
   const intend: UpdateTaskInput = {}
   let dueLabel: string | null = null
   let dueAmbiguousWeekday: string | null = null
-  const dueHint = extractDueHint(userMessage)
-  if (dueHint) {
-    const resolved = resolveProposedDueAt(dueHint, timezone, now)
+  const ownerDue =
+    extractCalendarDueToken(userMessage) ?? extractDueHint(userMessage)
+  if (ownerDue) {
+    const resolved = resolveProposedDueAt(ownerDue, timezone, now)
     if (!resolved.ok) {
       if (resolved.error === 'due_ambiguous') {
         dueAmbiguousWeekday = resolved.weekday
@@ -400,7 +405,7 @@ async function resolveIntend(
   }
 
   if (/переименуй|назови задач/.test(userMessage.toLowerCase())) {
-    const quotes = [...userMessage.matchAll(/[«“„"']([^«“„"'»”\n]{2,200})[»”"']/g)]
+    const quotes = [...userMessage.matchAll(/[«“„"']([^«“„"'»”\n]{2,200})[»”“"']/g)]
     const nextTitle = clampText(quotes[1]?.[1], 200)
     if (nextTitle) {
       intend.title = nextTitle
