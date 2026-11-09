@@ -52,6 +52,23 @@ test('friday is the next Friday in Europe/Moscow', () => {
   assert.equal(saturday.dueAt, '2026-11-13T20:59:00.000Z')
 })
 
+test('dotted DD.MM.YYYY time from the owner phrase is Europe/Moscow wall time', () => {
+  const token = extractCalendarDueToken(
+    'ОКСИ перенеси задачу „Тест создания задачи ОКСИ“ на 14.11.2026, 18:00',
+  )
+  assert.equal(token, '2026-11-14T18:00')
+  const resolved = resolveProposedDueAt(
+    token,
+    'Europe/Moscow',
+    new Date('2026-11-08T18:55:00.000Z'),
+  )
+  assert.equal(resolved.ok, true)
+  if (!resolved.ok) return
+  assert.equal(resolved.dueAt, '2026-11-14T15:00:00.000Z')
+  assert.equal(resolved.dueLabel?.includes('14 ноября'), true)
+  assert.equal(resolved.dueLabel?.includes('18:00'), true)
+})
+
 test('Russian calendar date with time is Europe/Moscow wall time', () => {
   const token = extractCalendarDueToken(
     'ОКСИ, найди задачу „Тест создания задачи ОКСИ“ и перенеси срок на 13 ноября 2026 года, 18:00. Покажи изменения для подтверждения, ничего не сохраняй',

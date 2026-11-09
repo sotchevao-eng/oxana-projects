@@ -19,6 +19,8 @@ const RU_MONTHS: Record<string, number> = {
 }
 const RU_CALENDAR_RE =
   /(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(\d{4})(?:\s*года)?(?:\s*,?\s*(?:в\s+)?(\d{1,2})[:.](\d{2}))?/i
+const RU_NUMERIC_DATE_RE =
+  /(^|[^\d])(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s*,?\s*(?:в\s+)?(\d{1,2})[:.](\d{2}))?/
 const MAX_AHEAD_DAYS = 366
 
 const WEEKDAY_TOKENS: Record<string, { dow: number; label: string }> = {
@@ -94,7 +96,7 @@ export function dueAmbiguousReply(weekday = 'этот день недели'): s
 }
 
 export const OXANA_INVALID_DUE_REPLY =
-  'Не поняла срок. Укажите дату как «13 ноября 2026, 18:00» или YYYY-MM-DD. Задачу не меняю.'
+  'Не поняла срок. Укажите дату как «13 ноября 2026, 18:00», 14.11.2026, 18:00 или YYYY-MM-DD. Задачу не меняю.'
 
 export function extractCalendarDueToken(message: string): string | null {
   const text = message.trim()
@@ -112,6 +114,21 @@ export function extractCalendarDueToken(message: string): string | null {
     }
     if (russian[4] !== undefined && russian[5] !== undefined) {
       return withTime(token, Number(russian[4]), Number(russian[5]))
+    }
+    return token
+  }
+  const numeric = RU_NUMERIC_DATE_RE.exec(text)
+  if (numeric) {
+    const token = ymdToken(
+      Number(numeric[4]),
+      Number(numeric[3]),
+      Number(numeric[2]),
+    )
+    if (!token) {
+      return null
+    }
+    if (numeric[5] !== undefined && numeric[6] !== undefined) {
+      return withTime(token, Number(numeric[5]), Number(numeric[6]))
     }
     return token
   }

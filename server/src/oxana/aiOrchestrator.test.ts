@@ -11,6 +11,7 @@ import {
 } from './aiGetTask.js'
 import { OXANA_PROPOSAL_REPLY, extractQuotedTitle } from './aiPropose.js'
 import {
+  looksLikeTaskUpdateRequest,
   OXANA_CHOOSE_TASK_REPLY,
   OXANA_TASK_NOT_FOUND_REPLY,
   OXANA_UPDATE_PROPOSAL_REPLY,
@@ -1436,6 +1437,106 @@ test('Russian calendar due from the owner message returns a diff card without wr
     (item) => item.name,
   )
   assert.deepEqual(functionNames, ['oxana_propose_update_task'])
+})
+
+const DOTTED_UPDATE_MESSAGE =
+  'ОКСИ перенеси задачу „Тест создания задачи ОКСИ“ на 14.11.2026, 18:00'
+
+test('dotted DD.MM.YYYY due from the live command returns a diff card without writing', async () => {
+  isolateEnv()
+  const repo = new SpyRepo()
+  const owner = await seedCabinet(repo)
+  const task = await repo.createTask(owner.id, OWNER_A, {
+    title: 'Тест создания задачи ОКСИ',
+    description: 'оставить',
+    projectId: null,
+    dueAt: '2026-11-13T15:00:00.000Z',
+    priority: 'normal',
+  })
+  const createdBefore = repo.createTaskCalls
+  assert.equal(looksLikeTaskUpdateRequest(DOTTED_UPDATE_MESSAGE), true)
+  assert.equal(extractQuotedTitle(DOTTED_UPDATE_MESSAGE), 'Тест создания задачи ОКСИ')
+  assert.deepEqual(
+    cabinetChatFunctions(DOTTED_UPDATE_MESSAGE).map((item) => item.name),
+    ['oxana_propose_update_task'],
+  )
+  const { calls, transport } = mockTransport((request) => {
+    if (request.url === GIGACHAT_OAUTH_URL) return oauthOk()
+    const payload = chatPayload(request)
+    const last = payload.messages.at(-1)
+    if (last?.role === 'function') {
+      return stopReply(
+        'К сожалению, возникла ошибка при попытке обновить задачу. Возможно, неверно указано название или дата. Уточните информацию еще раз',
+      )
+    }
+    return functionCallReply('oxana_propose_update_task', {
+      title: 'программа похудения меня и сына',
+      due: '14.11.2026, 18:00',
+    })
+  })
+  const app = createApp({
+    oxanaRepo: repo,
+    oxanaAiProvider: new GigaChatAdapter({ transport }),
+  })
+  const history = [
+    {
+      role: 'user',
+      text: 'ОКСИ, найди существующую задачу «Тест создания задачи ОКСИ» и покажи её текущий срок и приоритет. Ничего не изменяй',
+    },
+    { role: 'assistant', text: 'Задача «Тест создания задачи ОКСИ»: срок 13 ноября, 18:00.' },
+  ]
+  const body = await readJson(
+    await postChat(app, DOTTED_UPDATE_MESSAGE, OWNER_A, history),
+  )
+  assert.equal(body.reply, OXANA_UPDATE_PROPOSAL_REPLY)
+  assert.equal(
+    String(body.reply).includes('возникла ошибка при попытке обновить задачу'),
+    false,
+  )
+  assert.equal(repo.createTaskCalls, createdBefore)
+  assert.equal(repo.updateTaskCalls, 0)
+  const proposal = body.proposal as Record<string, unknown>
+  assert.equal(proposal.type, 'update_task')
+  assert.equal(proposal.taskId, task.id)
+  assert.deepEqual(proposal.fields, ['dueAt'])
+  const current = proposal.current as Record<string, unknown>
+  const next = proposal.next as Record<string, unknown>
+  assert.equal(current.dueAt, '2026-11-13T15:00:00.000Z')
+  assert.equal(String(current.dueLabel).includes('13 ноября'), true)
+  assert.equal(next.dueAt, '2026-11-14T15:00:00.000Z')
+  assert.equal(String(next.dueLabel).includes('14 ноября'), true)
+  assert.equal(String(next.dueLabel).includes('18:00'), true)
+  assert.equal(current.priority, 'normal')
+  assert.equal(next.priority, 'normal')
+  const unchanged = await repo.getTask(owner.id, task.id)
+  assert.equal(unchanged.dueAt, task.dueAt)
+  const first = chatPayload(
+    calls.filter((item) => item.url === GIGACHAT_CHAT_URL)[0] as GigachatTransportRequest,
+  )
+  const names = functionNamesFrom(
+    calls.find((item) => item.url === GIGACHAT_CHAT_URL),
+  )
+  assert.deepEqual(names, ['oxana_propose_update_task'])
+  assert.equal(names.includes(OXANA_GET_TASK_BY_TITLE), false)
+  assert.equal(names.includes('oxana_propose_create_task'), false)
+  const fnBody = JSON.parse(
+    String(
+      chatPayload(
+        calls.filter((item) => item.url === GIGACHAT_CHAT_URL)[1] as GigachatTransportRequest,
+      ).messages.find((item) => item.role === 'function')?.content ?? '{}',
+    ),
+  ) as { error?: string; created?: boolean; updated?: boolean }
+  assert.equal(fnBody.error, undefined)
+  assert.equal(fnBody.created, false)
+  assert.equal(fnBody.updated, false)
+  assert.equal(
+    first.messages.some(
+      (item) =>
+        item.role === 'user' &&
+        String(item.content).includes('покажи её текущий срок'),
+    ),
+    true,
+  )
 })
 
 test('invalid due keeps a server-owned reply and does not claim an update', async () => {

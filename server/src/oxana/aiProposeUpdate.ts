@@ -353,7 +353,10 @@ async function resolveIntend(
       intend.dueAt = resolved.dueAt
       dueLabel = resolved.dueLabel
     }
-  } else if (/\d{4}-\d{2}-\d{2}/.test(userMessage)) {
+  } else if (
+    /\d{4}-\d{2}-\d{2}/.test(userMessage) ||
+    /\d{1,2}\.\d{1,2}\.\d{4}/.test(userMessage)
+  ) {
     const resolved = resolveProposedDueAt(
       coerceDueInput(args.due ?? args.dueAt ?? args.due_at),
       timezone,

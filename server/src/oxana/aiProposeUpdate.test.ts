@@ -178,6 +178,8 @@ test('create phrasing is not treated as an update request', () => {
 
 const LIVE_UPDATE_MESSAGE =
   'ОКСИ, найди задачу „Тест создания задачи ОКСИ“ и перенеси срок на 13 ноября 2026 года, 18:00. Покажи изменения для подтверждения, ничего не сохраняй'
+const DOTTED_UPDATE_MESSAGE =
+  'ОКСИ перенеси задачу „Тест создания задачи ОКСИ“ на 14.11.2026, 18:00'
 
 test('owner Russian calendar due is proposed without writing', async () => {
   assert.equal(looksLikeTaskUpdateRequest(LIVE_UPDATE_MESSAGE), true)
@@ -231,4 +233,41 @@ test('friday today does not guess a due date', async () => {
   assert.equal(result.proposal.next.priority, 'high')
   assert.equal(result.proposal.fields.includes('dueAt'), true)
   assert.equal(result.proposal.fields.includes('priority'), true)
+})
+
+test('dotted calendar due from the exact owner command proposes a due-only card', async () => {
+  assert.equal(looksLikeTaskUpdateRequest(DOTTED_UPDATE_MESSAGE), true)
+  const { repo, owner, task } = await seedOwnerTask({
+    dueAt: '2026-11-13T15:00:00.000Z',
+  })
+  const result = await executeOxanaProposeUpdateTask(
+    {
+      title: 'программа похудения меня и сына',
+      due: '14.11.2026, 18:00',
+    },
+    {
+      repo,
+      workspaceId: owner.id,
+      userId: OWNER,
+      userMessage: DOTTED_UPDATE_MESSAGE,
+      now: new Date('2026-11-08T18:55:00.000Z'),
+    },
+  )
+  assert.equal(result.kind, 'proposal')
+  assert.equal(result.proposal?.type, 'update_task')
+  if (result.proposal?.type !== 'update_task') return
+  assert.equal(result.proposal.taskId, task.id)
+  assert.deepEqual(result.proposal.fields, ['dueAt'])
+  assert.equal(result.proposal.current.dueAt, '2026-11-13T15:00:00.000Z')
+  assert.equal(result.proposal.current.dueLabel?.includes('13 ноября'), true)
+  assert.equal(result.proposal.next.dueAt, '2026-11-14T15:00:00.000Z')
+  assert.equal(result.proposal.next.dueLabel?.includes('14 ноября'), true)
+  assert.equal(result.proposal.next.dueLabel?.includes('18:00'), true)
+  assert.equal(result.proposal.current.priority, 'normal')
+  assert.equal(result.proposal.next.priority, 'normal')
+  assert.equal(result.payload.created, false)
+  assert.equal(result.payload.updated, false)
+  assert.equal(result.payload.error, undefined)
+  const unchanged = await repo.getTask(owner.id, task.id)
+  assert.equal(unchanged.dueAt, task.dueAt)
 })
