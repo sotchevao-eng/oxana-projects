@@ -1,0 +1,64 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { Pool } from 'pg'
+import { createSmmRouter } from './routes.js'
+
+const A='11111111-1111-4111-8111-111111111111'
+const B='22222222-2222-4222-8222-222222222222'
+
+test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurrency', async () => {
+  // Only a disposable database with a fixed loopback address; never use production env.
+  assert.equal(process.env.SMM_TEST_DB,'disposable-local-ci')
+  const pool=new Pool({host:'127.0.0.1',port:55439,database:'smm_ci',user:'smm_ci',password:'smm_ci_test_only',connectionTimeoutMillis:5000})
+  const previous=process.env.OXANA_ALLOWED_USER_IDS
+  process.env.OXANA_ALLOWED_USER_IDS=A+','+B
+  try {
+    const db=await pool.query('SELECT current_database() AS name, current_user AS role')
+    assert.equal(db.rows[0].name,'smm_ci')
+    assert.equal(db.rows[0].role,'smm_ci')
+    const existing=await pool.query("SELECT to_regnamespace('smm') AS schema")
+    assert.equal(existing.rows[0].schema,null,'Test database must be empty')
+    await pool.query(await readFile(new URL('../../../russian-postgres/smm-001.sql',import.meta.url),'utf8'))
+    const app=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:token==='owner-b'?B:null},()=>pool,()=>true)
+    async function call(path:string, method='GET', body?:unknown, owner='owner-a'){
+      const response=await app.request(path,{method,headers:{Authorization:'Bearer '+owner,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})})
+      return {status:response.status,data:await response.json() as any}
+    }
+    const c=await call('/communities','POST',{name:'Synthetic group',editorialPolicy:''})
+    assert.equal(c.status,201)
+    const cid=c.data.community.id as string
+    assert.equal((await call('/communities','GET',undefined,'owner-b')).data.communities.length,0)
+    assert.equal((await call('/communities/'+cid,'PATCH',{name:'Unauthorized',editorialPolicy:''},'owner-b')).status,404)
+    assert.equal((await call('/communities/'+cid,'PATCH',{name:'Updated group',editorialPolicy:'Synthetic policy'})).status,200)
+    assert.equal((await call('/posts','POST',{communityId:cid,body:'Foreign draft'},'owner-b')).status,404)
+    const p=await call('/posts','POST',{communityId:cid,body:'Version one'})
+    assert.equal(p.status,201)
+    const id=p.data.post.id as string
+    const path='/posts/'+id
+    assert.equal((await call('/posts','GET',undefined,'owner-b')).data.posts.length,0)
+    assert.equal((await call(path+'/approve','POST',{version:1,confirm:true},'owner-b')).status,404)
+    assert.equal((await call(path,'PATCH',{version:1,body:'Foreign edit'},'owner-b')).status,404)
+    assert.equal((await call(path+'/approve','POST',{version:1,confirm:true})).status,200)
+    assert.equal((await call(path+'/approve','POST',{version:1,confirm:true})).status,200)
+    assert.equal((await call('/posts')).data.posts[0].approved,true)
+    assert.equal((await call(path,'PATCH',{version:1,body:'Version two'})).status,200)
+    assert.equal((await call('/posts')).data.posts[0].approved,false)
+    assert.equal((await call(path+'/approve','POST',{version:1,confirm:true})).status,409)
+    const edits=await Promise.all([call(path,'PATCH',{version:2,body:'Concurrent A'}),call(path,'PATCH',{version:2,body:'Concurrent B'})])
+    assert.deepEqual(edits.map(x=>x.status).sort(),[200,409])
+    assert.equal((await call(path+'/publish','POST')).status,403)
+    const versions=await pool.query('SELECT version FROM smm.post_versions WHERE post_id=$1 ORDER BY version',[id])
+    assert.deepEqual(versions.rows.map(x=>x.version),[1,2,3])
+    const audits=await pool.query("SELECT count(*)::int AS n FROM smm.audit_logs WHERE subject_id=$1 AND action='post_approved'",[id])
+    assert.equal(audits.rows[0].n,1)
+    await assert.rejects(pool.query('INSERT INTO smm.posts(owner_id,community_id) VALUES($1,$2)',[B,cid]))
+    const before=await pool.query('SELECT count(*)::int AS n FROM smm.posts')
+    await assert.rejects(pool.query('INSERT INTO smm.posts(owner_id,community_id) VALUES($1,$2)',[A,cid]))
+    assert.equal((await pool.query('SELECT count(*)::int AS n FROM smm.posts')).rows[0].n,before.rows[0].n)
+  } finally {
+    if(previous===undefined)delete process.env.OXANA_ALLOWED_USER_IDS
+    else process.env.OXANA_ALLOWED_USER_IDS=previous
+    await pool.end()
+  }
+})
