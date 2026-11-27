@@ -4,6 +4,7 @@ import { requireAdmin } from './middleware/auth.js'
 import { createPii, getPii, patchPii } from './routes/adminPii.js'
 import { savePublicBriefPii } from './routes/publicBriefPii.js'
 import { oxanaAiProvider, type OxanaAiProvider } from './oxana/aiAdapter.js'
+import { createSmmRouter } from './smm/routes.js'
 import { createOxanaRouter } from './oxana/routes.js'
 import { pgOxanaRepo } from './oxana/pgRepo.js'
 import type { TokenVerifier } from './oxana/tokenVerifier.js'
@@ -54,6 +55,8 @@ export function createApp(options: CreateAppOptions = {}) {
       options.oxanaAiProvider ?? oxanaAiProvider,
     ),
   )
+
+  app.route('/api/smm', createSmmRouter(options.oxanaTokenVerifier))
 
   app.onError((error, c) => {
     console.info(
