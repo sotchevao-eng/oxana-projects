@@ -10,7 +10,7 @@ jobs:
   connection:
     if: github.ref == 'refs/heads/infra/timeweb-readonly'
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 8
     steps:
       - name: Verify read-only API connection
         env:
@@ -39,4 +39,47 @@ jobs:
               raise SystemExit("TIMEWEB_UNEXPECTED_RESPONSE")
           print("TIMEWEB_API_READ_OK")
           print("Accessible applications:", len(data["apps"]))
+          import re
+          def get(path):
+              request = urllib.request.Request("https://api.timeweb.cloud/api/v1" + path, headers={"Authorization": "Bearer " + token, "Accept": "application/json"}, method="GET")
+              try:
+                  with opener.open(request, timeout=20) as response:
+                      return response.status, json.load(response)
+              except urllib.error.HTTPError as e:
+                  return e.code, None
+              except Exception:
+                  return 0, None
+          def safe_status(value):
+              allowed = {"active","running","started","stopped","disabled","enabled","success","successful","failed","error","deploying","building","pending","ready","created","completed","in_progress","queued","deployed","online","offline"}
+              return value.lower() if isinstance(value,str) and value.lower() in allowed else "not_available"
+          def safe_commit(value):
+              return value[:7] if isinstance(value,str) and re.fullmatch(r"[0-9a-fA-F]{7,64}",value) else "not_available"
+          for index, app in enumerate(data["apps"][:10], 1):
+              if not isinstance(app,dict):
+                  continue
+              aid = str(app.get("id",""))
+              if not re.fullmatch(r"[0-9]{1,20}",aid):
+                  print("APP",index,"identifier format unsupported")
+                  continue
+              name = app.get("name")
+              label = name if name in ("OXANA AI Backend","Oxana PRO 1") else "APP_"+str(index)
+              print("APPLICATION",label)
+              status, detail = get("/apps/"+aid)
+              print("DETAIL_HTTP",status)
+              record = detail.get("app",{}) if isinstance(detail,dict) else {}
+              if not isinstance(record,dict): record={}
+              print("APP_STATUS",safe_status(record.get("status",app.get("status"))))
+              status, deployments = get("/apps/"+aid+"/deploys")
+              print("DEPLOYS_HTTP",status)
+              rows = deployments.get("deploys",[]) if isinstance(deployments,dict) else []
+              if isinstance(rows,list):
+                  print("DEPLOYS_RETURNED",len(rows))
+                  for item in rows[:3]:
+                      if not isinstance(item,dict): continue
+                      commit = item.get("commit_hash",item.get("commit_sha",item.get("commit")))
+                      if isinstance(commit,dict): commit=commit.get("sha",commit.get("hash",commit.get("id")))
+                      print("DEPLOY_STATUS",safe_status(item.get("status")),"COMMIT",safe_commit(commit))
+              status, _ = get("/apps/"+aid+"/statistics")
+              print("STATISTICS_HTTP",status)
+          print("TIMEWEB_DIAGNOSTICS_COMPLETE")
           PY
