@@ -82,4 +82,37 @@ jobs:
               status, _ = get("/apps/"+aid+"/statistics")
               print("STATISTICS_HTTP",status)
           print("TIMEWEB_DIAGNOSTICS_COMPLETE")
+          # Database metadata only; never print raw responses or credentials.
+          status, clusters = get("/databases")
+          print("DB_CLUSTERS_HTTP",status)
+          def array(obj, keys):
+              if isinstance(obj,dict):
+                  for key in keys:
+                      if isinstance(obj.get(key),list): return obj[key]
+              return None
+          entries = array(clusters, ("databases","db_clusters","clusters","database_clusters"))
+          if entries is None:
+              print("DB_CLUSTER_LIST_UNRECOGNIZED")
+          else:
+              print("DB_CLUSTER_COUNT",len(entries))
+              target = [x for x in entries if isinstance(x,dict) and x.get("name")=="oxana-projects-pii"]
+              print("OXANA_CLUSTER_FOUND",len(target)==1)
+              if len(target)==1:
+                  cid=str(target[0].get("id",""))
+                  if re.fullmatch(r"[0-9]{1,20}",cid):
+                      status, detail = get("/databases/"+cid)
+                      print("DB_DETAIL_HTTP",status)
+                      for suffix, label, keys in [
+                          ("/instances","DB_INSTANCES",("instances","databases","dbs")),
+                          ("/admins","DB_USERS",("admins","users"))
+                      ]:
+                          status, result = get("/databases/"+cid+suffix)
+                          print(label+"_HTTP",status)
+                          rows=array(result,keys)
+                          print(label+"_COUNT",len(rows) if rows is not None else "unknown")
+                          if label=="DB_INSTANCES" and rows is not None:
+                              print("TEST_DB_EXISTS",any(isinstance(x,dict) and x.get("name")=="oxana_smm_test" for x in rows))
+                          if label=="DB_USERS" and rows is not None:
+                              print("TEST_USER_EXISTS",any(isinstance(x,dict) and x.get("name",x.get("login"))=="smm_test_runtime" for x in rows))
+          print("DB_METADATA_CHECK_COMPLETE")
           PY
