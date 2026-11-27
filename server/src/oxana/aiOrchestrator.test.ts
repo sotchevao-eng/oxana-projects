@@ -1213,7 +1213,8 @@ test('model text cannot claim a task was created when only a draft exists', asyn
 const UPDATE_MESSAGE =
   'ОКСИ, перенеси задачу «Тест создания задачи ОКСИ» на пятницу и установи высокий приоритет'
 
-test('propose_update_task returns a diff card without writing', async () => {
+test('propose_update_task returns a diff card without writing', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-10T09:00:00.000Z') })
   isolateEnv()
   const repo = new SpyRepo()
   const owner = await seedCabinet(repo)
@@ -1275,7 +1276,8 @@ test('propose_update_task returns a diff card without writing', async () => {
   assert.equal(unchanged.priority, 'normal')
 })
 
-test('ambiguous update titles ask the owner to choose', async () => {
+test('ambiguous update titles ask the owner to choose', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-10T09:00:00.000Z') })
   isolateEnv()
   const repo = new SpyRepo()
   const owner = await seedCabinet(repo)
@@ -1383,7 +1385,8 @@ test('update intent cannot execute create or a write function', async () => {
 const LIVE_UPDATE_MESSAGE =
   'ОКСИ, найди задачу „Тест создания задачи ОКСИ“ и перенеси срок на 13 ноября 2026 года, 18:00. Покажи изменения для подтверждения, ничего не сохраняй'
 
-test('Russian calendar due from the owner message returns a diff card without writing', async () => {
+test('Russian calendar due from the owner message returns a diff card without writing', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-10T09:00:00.000Z') })
   isolateEnv()
   const repo = new SpyRepo()
   const owner = await seedCabinet(repo)
@@ -1442,7 +1445,8 @@ test('Russian calendar due from the owner message returns a diff card without wr
 const DOTTED_UPDATE_MESSAGE =
   'ОКСИ перенеси задачу „Тест создания задачи ОКСИ“ на 14.11.2026, 18:00'
 
-test('dotted DD.MM.YYYY due from the live command returns a diff card without writing', async () => {
+test('dotted DD.MM.YYYY due from the live command returns a diff card without writing', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-10T09:00:00.000Z') })
   isolateEnv()
   const repo = new SpyRepo()
   const owner = await seedCabinet(repo)
