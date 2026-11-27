@@ -43,7 +43,7 @@ export function createSmmRouter(
   app.post('/communities', async c => {
     const input = await c.req.json().catch(() => null)
     const name = field(input?.name, 200)
-    const policy = input?.editorialPolicy === undefined ? '' : field(input.editorialPolicy, 10000)
+    const policy = typeof input?.editorialPolicy === 'string' && input.editorialPolicy.length <= 10000 ? input.editorialPolicy.trim() : input?.editorialPolicy === undefined ? '' : null
     if (!name || policy === null) return c.json({ ok:false,error:'invalid_community' },400)
     const owner = c.get('userId')
     const row = await transaction(pool(), async db => {
@@ -52,6 +52,21 @@ export function createSmmRouter(
       return result.rows[0]
     })
     return c.json({ok:true,community:row},201)
+  })
+  app.patch('/communities/:id', async c => {
+    const id = c.req.param('id'), owner = c.get('userId')
+    const input = await c.req.json().catch(() => null)
+    const name = field(input?.name, 200)
+    const policy = typeof input?.editorialPolicy === 'string' && input.editorialPolicy.length <= 10000 ? input.editorialPolicy.trim() : null
+    if (!uuid.test(id) || !name || policy === null) return c.json({ok:false,error:'invalid_community'},400)
+    const row = await transaction(pool(), async db => {
+      const result = await db.query('UPDATE smm.communities SET name=$3,editorial_policy=$4 WHERE owner_id=$1 AND id=$2 RETURNING id,name,editorial_policy',[owner,id,name,policy])
+      if (!result.rowCount) return null
+      await db.query("INSERT INTO smm.audit_logs(owner_id,action,subject_id) VALUES($1,'community_updated',$2)",[owner,id])
+      return result.rows[0]
+    })
+    if (!row) return c.json({ok:false,error:'not_found'},404)
+    return c.json({ok:true,community:row})
   })
   app.get('/posts', async c => {
     const result = await pool().query(`SELECT p.id,p.community_id,p.current_version,v.body,
