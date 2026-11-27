@@ -11,6 +11,7 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
   // Only a disposable database with a fixed loopback address; never use production env.
   assert.equal(process.env.SMM_TEST_DB,'disposable-local-ci')
   const pool=new Pool({host:'127.0.0.1',port:55439,database:'smm_ci',user:'smm_ci',password:'smm_ci_test_only',connectionTimeoutMillis:5000})
+  const runtime=new Pool({host:'127.0.0.1',port:55439,database:'smm_ci',user:'smm_runtime',password:'smm_runtime_test_only',connectionTimeoutMillis:5000})
   const previous=process.env.OXANA_ALLOWED_USER_IDS
   process.env.OXANA_ALLOWED_USER_IDS=A+','+B
   try {
@@ -20,7 +21,13 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
     const existing=await pool.query("SELECT to_regnamespace('smm') AS schema")
     assert.equal(existing.rows[0].schema,null,'Test database must be empty')
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-001.sql',import.meta.url),'utf8'))
-    const app=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:token==='owner-b'?B:null},()=>pool,()=>true)
+    await pool.query("CREATE ROLE smm_runtime LOGIN PASSWORD 'smm_runtime_test_only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT")
+    await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
+    assert.equal((await runtime.query('SELECT current_user AS role')).rows[0].role,'smm_runtime')
+    for (const sql of ['DELETE FROM smm.communities','UPDATE smm.post_versions SET body=body','DELETE FROM smm.approvals','SELECT * FROM smm.budget_limits','SELECT * FROM smm.audit_logs','CREATE TABLE smm.forbidden(id int)']) {
+      await assert.rejects(runtime.query(sql), {code:'42501'})
+    }
+    const app=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:token==='owner-b'?B:null},()=>runtime,()=>true)
     async function call(path:string, method='GET', body?:unknown, owner='owner-a'){
       const response=await app.request(path,{method,headers:{Authorization:'Bearer '+owner,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})})
       return {status:response.status,data:await response.json() as any}
@@ -59,6 +66,7 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
   } finally {
     if(previous===undefined)delete process.env.OXANA_ALLOWED_USER_IDS
     else process.env.OXANA_ALLOWED_USER_IDS=previous
+    await runtime.end()
     await pool.end()
   }
 })
