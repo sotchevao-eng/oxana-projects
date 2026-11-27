@@ -1,0 +1,42 @@
+name: Timeweb read-only connection
+on:
+  push:
+    branches: [infra/timeweb-readonly]
+    paths: [.github/workflows/timeweb-readonly.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  connection:
+    if: github.ref == 'refs/heads/infra/timeweb-readonly'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify read-only API connection
+        env:
+          TIMEWEB_API_TOKEN: ${{ secrets.TIMEWEB_API_TOKEN }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request, urllib.error
+          token = os.environ.get("TIMEWEB_API_TOKEN", "")
+          if not token:
+              raise SystemExit("TIMEWEB_API_TOKEN is missing")
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+          opener = urllib.request.build_opener(NoRedirect())
+          req = urllib.request.Request("https://api.timeweb.cloud/api/v1/apps", headers={"Authorization": "Bearer " + token, "Accept": "application/json"}, method="GET")
+          try:
+              with opener.open(req, timeout=25) as response:
+                  status = response.status
+                  data = json.load(response)
+          except urllib.error.HTTPError as e:
+              raise SystemExit("TIMEWEB_HTTP_" + str(e.code)) from None
+          except Exception:
+              raise SystemExit("TIMEWEB_CONNECTION_OR_RESPONSE_ERROR") from None
+          if status != 200 or not isinstance(data, dict) or not isinstance(data.get("apps"), list):
+              raise SystemExit("TIMEWEB_UNEXPECTED_RESPONSE")
+          print("TIMEWEB_API_READ_OK")
+          print("Accessible applications:", len(data["apps"]))
+          PY
