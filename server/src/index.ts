@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server'
-import { createApp } from './app.js'
+import { Hono } from 'hono'
 import { closePiiPool } from './db.js'
 import { resolveListenOptions } from './listen.js'
 import { closeOxanaPool } from './oxana/db.js'
@@ -9,17 +9,21 @@ import {
   stopOxanaReminderScheduler,
 } from './oxana/reminderScheduler.js'
 
-const app = createApp()
+const isolatedSmoke = process.env.OXANA_STAGING_SMOKE_ONLY === 'true'
+const app = isolatedSmoke ? new Hono() : (await import('./app.js')).createApp()
+if (isolatedSmoke) {
+  app.get('/api/health', c => c.json({ ok: true, service: 'oxana-smm-staging', smokeOnly: true }))
+}
 const { port, hostname } = resolveListenOptions()
 
 const server = serve({ fetch: app.fetch, port, hostname }, () => {
-  startOxanaReminderScheduler()
+  if (!isolatedSmoke) startOxanaReminderScheduler()
   console.info(
     JSON.stringify({
       event: 'pii_api_listen',
       port,
       hostname,
-      reminders: getOxanaReminderSchedulerStatus(),
+      reminders: isolatedSmoke ? 'disabled_for_smoke' : getOxanaReminderSchedulerStatus(),
     }),
   )
 })
