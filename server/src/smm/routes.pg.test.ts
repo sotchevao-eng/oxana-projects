@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { Pool } from 'pg'
+import { createTsgCallback } from './tsgCallback.js'
 import { createSmmRouter } from './routes.js'
 
 const A='11111111-1111-4111-8111-111111111111'
@@ -24,12 +25,26 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-002.sql',import.meta.url),'utf8'))
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-003.sql',import.meta.url),'utf8'))
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-004.sql',import.meta.url),'utf8'))
+    await pool.query(await readFile(new URL('../../../russian-postgres/smm-005.sql',import.meta.url),'utf8'))
     await pool.query("CREATE ROLE smm_runtime LOGIN PASSWORD 'smm_runtime_test_only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT")
-    await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.plan_items,smm.studio_requests,smm.personal_smoke TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
+    await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.plan_items,smm.studio_requests,smm.personal_smoke TO smm_runtime; GRANT SELECT,INSERT ON smm.tsg_callback_events TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
     assert.equal((await runtime.query('SELECT current_user AS role')).rows[0].role,'smm_runtime')
     for (const sql of ['DELETE FROM smm.personal_smoke','DELETE FROM smm.studio_requests','DELETE FROM smm.plan_items','DELETE FROM smm.communities','UPDATE smm.post_versions SET body=body','DELETE FROM smm.approvals','SELECT * FROM smm.budget_limits','SELECT * FROM smm.audit_logs','CREATE TABLE smm.forbidden(id int)']) {
       await assert.rejects(runtime.query(sql), {code:'42501'})
     }
+    await assert.rejects(runtime.query('DELETE FROM smm.tsg_callback_events'),{code:'42501'})
+    await assert.rejects(runtime.query('UPDATE smm.tsg_callback_events SET post_id=1'),{code:'42501'})
+    const callbackSecret='synthetic-callback-secret-ci-only'
+    const callback=createTsgCallback({OXANA_STAGING_SMOKE_ONLY:'true',OXANA_SMM_STAGING_AUTH:'true',OXANA_SMM_ENABLED:'true',VK_TSG_CALLBACK_ENABLED:'true',VK_TSG_CALLBACK_SECRET:callbackSecret,VK_TSG_CALLBACK_CONFIRMATION:'synthetic-confirmation'},()=>runtime)
+    const callbackBody={group_id:146520897,secret:callbackSecret,type:'wall_post_new',object:{id:123,owner_id:-146520897,from_id:-146520897,text:'synthetic private text'}}
+    const sendCallback=()=>callback.request('/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(callbackBody)})
+    const replies=await Promise.all([sendCallback(),sendCallback()])
+    assert.deepEqual(replies.map(r=>r.status),[200,200])
+    assert.deepEqual(await Promise.all(replies.map(r=>r.text())),['ok','ok'])
+    const events=await runtime.query('SELECT * FROM smm.tsg_callback_events')
+    assert.equal(events.rowCount,1)
+    assert.deepEqual(Object.keys(events.rows[0]).sort(),['post_id','received_at'])
+    assert.equal(Number(events.rows[0].post_id),123)
     const app=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:token==='owner-b'?B:null},()=>runtime,()=>true)
     async function call(path:string, method='GET', body?:unknown, owner='owner-a'){
       const response=await app.request(path,{method,headers:{Authorization:'Bearer '+owner,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})})
