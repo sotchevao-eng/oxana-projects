@@ -4,6 +4,7 @@ import { createConfiguredTokenVerifier, type TokenVerifier } from '../oxana/toke
 import { getOxanaPool } from '../oxana/db.js'
 import type { Pool, PoolClient } from 'pg'
 import { vkReaderStatus, readOxanaWall, isVkDomain, vkDiagnostic } from './vkReader.js'
+import { saveMunicipalScan } from './municipalJournal.js'
 import { probeMunicipalSources } from './municipalReader.js'
 import { monitoringCatalog, validateCandidate } from './monitoring.js'
 import { providerCatalog } from './providers.js'
@@ -51,6 +52,13 @@ export function createSmmRouter(
   })
   app.get('/studio/providers', c => c.json(providerCatalog()))
   app.get('/monitoring/sources', c => c.json(monitoringCatalog()))
+  app.get('/monitoring/journal',async c=>{
+    if(personalEnv?.OXANA_STAGING_SMOKE_ONLY!=='true'||personalEnv?.OXANA_SMM_STAGING_AUTH!=='true')return c.json({ok:false,error:'journal_disabled'},403)
+    const owner=c.get('userId')
+    const notices=await pool().query('SELECT source_id,url,title,title_date::text,address_match,first_seen,last_seen,last_changed FROM smm.municipal_notices WHERE owner_id=$1 ORDER BY last_seen DESC,source_id,url LIMIT 100',[owner])
+    const checks=await pool().query('SELECT checked_at,source_id,status,diagnostic,link_count,article_count FROM smm.municipal_checks WHERE owner_id=$1 ORDER BY checked_at DESC,id DESC LIMIT 30',[owner])
+    return c.json({ok:true,notices:notices.rows,checks:checks.rows,automaticCollection:false})
+  })
   let municipalBusy=false,municipalLast=0
   app.post('/monitoring/probe',async c=>{
     if(personalEnv?.OXANA_STAGING_SMOKE_ONLY!=='true'||personalEnv?.OXANA_SMM_STAGING_AUTH!=='true')return c.json({ok:false,error:'probe_disabled'},403)
@@ -58,7 +66,11 @@ export function createSmmRouter(
     if(!input||input.confirm!==true||Object.keys(input).length!==1)return c.json({ok:false,error:'explicit_confirmation_required'},400)
     if(municipalBusy||Date.now()-municipalLast<60000)return c.json({ok:false,error:'probe_rate_limit'},429)
     municipalBusy=true;municipalLast=Date.now()
-    try{return c.json({ok:true,checkedAt:new Date().toISOString(),sources:await probeMunicipalSources(),automaticCollection:false})}
+    try{
+      const sources=await probeMunicipalSources()
+      await transaction(pool(),db=>saveMunicipalScan(db,c.get('userId'),sources))
+      return c.json({ok:true,checkedAt:new Date().toISOString(),sources,automaticCollection:false,journalSaved:true})
+    }catch{return c.json({ok:false,error:'municipal_journal_failed'},503)}
     finally{municipalBusy=false}
   })
   app.post('/monitoring/preview',async c=>{
