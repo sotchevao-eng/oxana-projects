@@ -27,6 +27,12 @@ async function boundedHtml(url:string,request:typeof fetch){
 function plain(html:string){
  return html.replace(/<br\s*\/?>|<\/(?:p|div|li|tr|h[1-6])>/gi,' ').replace(/<[^>]*>/g,' ').replace(/&(?:nbsp|#160);/gi,' ').replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/\s+/g,' ').trim()
 }
+export function titleDate(title:string):string|null{
+ const m=title.match(/\b(\d{2})\.(\d{2})\.(20\d{2})\b/)
+ if(!m)return null
+ const iso=m[3]+'-'+m[2]+'-'+m[1],d=new Date(iso+'T00:00:00Z')
+ return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===iso?iso:null
+}
 export function parseMunicipalArticle(html:string){
  const clean=html.replace(/<!--[\s\S]*?-->|<(script|style|nav|header|footer)\b[^>]*>[\s\S]*?<\/\1>/gi,' ')
  const main=clean.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1]??clean.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1]
@@ -34,7 +40,7 @@ export function parseMunicipalArticle(html:string){
  if(!main||!title)return {title:title||'Заголовок не извлечён',addressMatch:'unknown',status:'parser_review'}
  const body=plain(main)
  if(!body)return {title,addressMatch:'unknown',status:'parser_review'}
- return {title,addressMatch:classifyTsgAddress(body),status:'review_required'}
+ return {title,titleDate:titleDate(title),addressMatch:classifyTsgAddress(body),status:'review_required'}
 }
 function diagnostic(e:unknown){
  const s=e instanceof Error?e.message:''
@@ -45,10 +51,14 @@ export async function probeMunicipalSources(request:typeof fetch=fetch){
   try{
    const html=await boundedHtml(s.url,request)
    const links=discoverLinks(html,s.url,s.path)
-   const articles=await Promise.all(links.slice(0,3).map(async url=>{
+   const articles=[]
+   for(let i=0;i<links.length;i+=3){
+   const batch=await Promise.all(links.slice(i,i+3).map(async url=>{
     try{return {url,...parseMunicipalArticle(await boundedHtml(url,request))}}
     catch(e){return {url,title:'Не удалось прочитать объявление',addressMatch:'unknown',status:diagnostic(e)}}
    }))
+   articles.push(...batch)
+   }
    return {id:s.id,status:links.length?'links_found':'parser_review',links,articles,diagnostic:null}
   }catch(e){return {id:s.id,status:'unavailable',links:[],articles:[],diagnostic:diagnostic(e)}}
  }))
