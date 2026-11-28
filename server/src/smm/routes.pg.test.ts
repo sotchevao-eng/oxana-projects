@@ -28,6 +28,7 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-004.sql',import.meta.url),'utf8'))
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-005.sql',import.meta.url),'utf8'))
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-006.sql',import.meta.url),'utf8'))
+    await pool.query(await readFile(new URL('../../../russian-postgres/smm-007.sql',import.meta.url),'utf8'))
     await pool.query("CREATE ROLE smm_runtime LOGIN PASSWORD 'smm_runtime_test_only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT")
     await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.plan_items,smm.studio_requests,smm.personal_smoke TO smm_runtime; GRANT SELECT,INSERT ON smm.tsg_callback_events TO smm_runtime; GRANT SELECT,INSERT ON smm.municipal_checks TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.municipal_notices TO smm_runtime; GRANT USAGE ON SEQUENCE smm.municipal_checks_id_seq TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
     assert.equal((await runtime.query('SELECT current_user AS role')).rows[0].role,'smm_runtime')
@@ -58,6 +59,9 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
       assert.equal((await scanDb.query('SELECT count(*)::int AS n FROM smm.municipal_checks WHERE owner_id=$1',[A])).rows[0].n,2)
       await saveMunicipalScan(scanDb,A,[{id:'water-ryazan',status:'links_found',links:[scan[0].articles[0].url],diagnostic:null,articles:[{url:scan[0].articles[0].url,title:'Ошибка чтения',status:'network_error',addressMatch:'unknown'}]}])
       assert.equal((await scanDb.query('SELECT title FROM smm.municipal_notices WHERE owner_id=$1',[A])).rows[0].title,'Тест 27.11.2026')
+      await saveMunicipalScan(scanDb,A,[{id:'rgres-ryazan',status:'links_found',links:['https://gorseti62.ru/test'],diagnostic:null,articles:[{url:'https://gorseti62.ru/test',title:'Тест электричества',titleDate:null,addressMatch:'unknown',status:'parser_review'}]},{id:'gas-ryazan',status:'unavailable',links:[],articles:[],diagnostic:'network_error'}])
+      assert.equal((await scanDb.query("SELECT count(*)::int AS n FROM smm.municipal_checks WHERE source_id IN ('rgres-ryazan','gas-ryazan')")).rows[0].n,2)
+      await assert.rejects(scanDb.query("INSERT INTO smm.municipal_checks(owner_id,source_id,status,link_count,article_count) VALUES($1,'unknown-source','unavailable',0,0)",[A]),{code:'23514'})
     } finally {scanDb.release()}
     const app=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:token==='owner-b'?B:null},()=>runtime,()=>true)
     async function call(path:string, method='GET', body?:unknown, owner='owner-a'){
