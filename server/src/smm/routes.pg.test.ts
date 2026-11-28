@@ -21,10 +21,11 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
     const existing=await pool.query("SELECT to_regnamespace('smm') AS schema")
     assert.equal(existing.rows[0].schema,null,'Test database must be empty')
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-001.sql',import.meta.url),'utf8'))
+    await pool.query(await readFile(new URL('../../../russian-postgres/smm-002.sql',import.meta.url),'utf8'))
     await pool.query("CREATE ROLE smm_runtime LOGIN PASSWORD 'smm_runtime_test_only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT")
-    await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
+    await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.plan_items TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
     assert.equal((await runtime.query('SELECT current_user AS role')).rows[0].role,'smm_runtime')
-    for (const sql of ['DELETE FROM smm.communities','UPDATE smm.post_versions SET body=body','DELETE FROM smm.approvals','SELECT * FROM smm.budget_limits','SELECT * FROM smm.audit_logs','CREATE TABLE smm.forbidden(id int)']) {
+    for (const sql of ['DELETE FROM smm.plan_items','DELETE FROM smm.communities','UPDATE smm.post_versions SET body=body','DELETE FROM smm.approvals','SELECT * FROM smm.budget_limits','SELECT * FROM smm.audit_logs','CREATE TABLE smm.forbidden(id int)']) {
       await assert.rejects(runtime.query(sql), {code:'42501'})
     }
     const app=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:token==='owner-b'?B:null},()=>runtime,()=>true)
@@ -39,6 +40,21 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
     assert.equal((await call('/communities/'+cid,'PATCH',{name:'Unauthorized',editorialPolicy:''},'owner-b')).status,404)
     assert.equal((await call('/communities/'+cid,'PATCH',{name:'Updated group',editorialPolicy:'Synthetic policy'})).status,200)
     assert.equal((await call('/posts','POST',{communityId:cid,body:'Foreign draft'},'owner-b')).status,404)
+    const plan={communityId:cid,topic:'Synthetic topic',date:'2026-12-01',time:'09:30'}
+    assert.equal((await call('/plan','POST',{...plan,date:'2026-02-30'})).status,400)
+    assert.equal((await call('/plan','POST',{...plan,time:'25:00'})).status,400)
+    assert.equal((await call('/plan','POST',plan,'owner-b')).status,404)
+    const item=await call('/plan','POST',plan)
+    assert.equal(item.status,201)
+    const planPath='/plan/'+item.data.item.id
+    assert.equal((await call('/plan','GET',undefined,'owner-b')).data.items.length,0)
+    assert.equal((await call(planPath,'PATCH',{...plan,revision:1},'owner-b')).status,404)
+    assert.equal((await call(planPath,'PATCH',{...plan,date:'2026-12-02',revision:1})).status,200)
+    assert.equal((await call(planPath,'PATCH',{...plan,revision:1})).status,409)
+    const saved=(await call('/plan')).data.items[0]
+    assert.equal(saved.date,'2026-12-02')
+    assert.equal(saved.time,'09:30')
+    assert.equal(saved.revision,2)
     const p=await call('/posts','POST',{communityId:cid,body:'Version one'})
     assert.equal(p.status,201)
     const id=p.data.post.id as string
