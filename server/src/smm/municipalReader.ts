@@ -11,7 +11,7 @@ export function discoverLinks(html:string,base:string,path:string){
  const origin=new URL(base).origin, links=new Set<string>()
  for(const m of html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi)){
   try{const u=new URL(m[1].replace(/&amp;/g,'&'),base)
-   if(u.origin!==origin||u.username||u.password||u.hash||!u.pathname.startsWith(path)||u.pathname===path)continue
+   if(u.origin!==origin||u.username||u.password||u.hash||!u.pathname.startsWith(path)||(!path.endsWith('.php')&&u.pathname===path))continue
    if(path.endsWith('.php')){
     if(u.pathname!==path||!/^\?ELEMENT_ID=\d{1,10}$/.test(u.search))continue
    }else if(path==='/press-center/informacija-dlja-abonentov/'){
