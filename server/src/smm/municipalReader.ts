@@ -3,13 +3,24 @@ const sources=[
  {id:'water-ryazan',url:'https://vodokanalryazan.ru/press-tsentr/remontnye-raboty',path:'/press-tsentr/remontnye-raboty/'},
  {id:'city-ryazan',url:'https://www.admrzn.ryazan.gov.ru/announcements/',path:'/announcements/'}
 ] as const
+const additionalSources=[
+ {id:'rgres-ryazan',url:'https://gorseti62.ru/potrebitelyam/peredacha-elektricheskoy-energii/planovye-i-avariynye-otklyucheniya-elektricheskoy-energii.php',path:'/potrebitelyam/peredacha-elektricheskoy-energii/planovye-i-avariynye-otklyucheniya-elektricheskoy-energii.php'},
+ {id:'gas-ryazan',url:'https://ryazangorgaz.ru/press-center/informacija-dlja-abonentov/',path:'/press-center/informacija-dlja-abonentov/'}
+] as const
 export function discoverLinks(html:string,base:string,path:string){
  const origin=new URL(base).origin, links=new Set<string>()
  for(const m of html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi)){
   try{const u=new URL(m[1].replace(/&amp;/g,'&'),base)
-   if(u.origin!==origin||u.username||u.password||u.search||u.hash||!u.pathname.startsWith(path)||u.pathname===path)continue
+   if(u.origin!==origin||u.username||u.password||u.hash||!u.pathname.startsWith(path)||u.pathname===path)continue
+   if(path.endsWith('.php')){
+    if(u.pathname!==path||!/^\?ELEMENT_ID=\d{1,10}$/.test(u.search))continue
+   }else if(path==='/press-center/informacija-dlja-abonentov/'){
+    if(u.search||!/(grafik|otklyuch|tekho?bsluzh|remont)/i.test(u.pathname))continue
+   }else {
+   if(u.search)continue
    if(path==='/announcements/'&&!/^\/announcements\/\d+\/?$/.test(u.pathname))continue
    if(path!='/announcements/'&&!/otklyuchenie/i.test(u.pathname))continue
+   }
    links.add(u.href)
   }catch{}
   if(links.size>=10)break
@@ -46,8 +57,8 @@ function diagnostic(e:unknown){
  const s=e instanceof Error?e.message:''
  return /^(http_\d{3}|not_html|response_limit)$/.test(s)?s:e instanceof Error&&(e.name==='TimeoutError'||e.name==='AbortError')?'timeout':'network_error'
 }
-export async function probeMunicipalSources(request:typeof fetch=fetch){
- return Promise.all(sources.map(async s=>{
+export async function probeMunicipalSources(request:typeof fetch=fetch,expanded=false){
+ return Promise.all((expanded?[...sources,...additionalSources]:sources).map(async s=>{
   try{
    const html=await boundedHtml(s.url,request)
    const links=discoverLinks(html,s.url,s.path)
