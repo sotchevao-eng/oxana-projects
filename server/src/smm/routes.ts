@@ -3,6 +3,7 @@ import { createRequireOxanaOwner } from '../oxana/auth.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from '../oxana/tokenVerifier.js'
 import { getOxanaPool } from '../oxana/db.js'
 import type { Pool, PoolClient } from 'pg'
+import { vkReaderStatus, readOxanaWall } from './vkReader.js'
 import { monitoringCatalog, validateCandidate } from './monitoring.js'
 import { providerCatalog } from './providers.js'
 import { personalSmoke } from './personalSmoke.js'
@@ -53,6 +54,18 @@ export function createSmmRouter(
     const candidate=validateCandidate(await c.req.json().catch(()=>null))
     if(!candidate)return c.json({ok:false,error:'invalid_source_candidate'},400)
     return c.json({ok:true,candidate,externalCalls:false})
+  })
+  app.get('/vk/status', c=>c.json(vkReaderStatus(personalEnv??{})))
+  let vkBusy=false, vkLast=0
+  app.post('/vk/read',async c=>{
+    if(!personalEnv||!vkReaderStatus(personalEnv).readEnabled)return c.json({ok:false,error:'vk_read_disabled'},403)
+    const input=await c.req.json().catch(()=>null)
+    if(!input||input.confirm!==true||Object.keys(input).length!==1)return c.json({ok:false,error:'explicit_confirmation_required'},400)
+    if(vkBusy||Date.now()-vkLast<30000)return c.json({ok:false,error:'vk_read_rate_limit'},429)
+    vkBusy=true;vkLast=Date.now()
+    try{return c.json(await readOxanaWall(personalEnv))}
+    catch{return c.json({ok:false,error:'vk_read_failed'},502)}
+    finally{vkBusy=false}
   })
   app.get('/status', c => c.json({ ok: true, publicationEnabled: false, paidGenerationEnabled: false }))
   app.get('/communities', async c => {
