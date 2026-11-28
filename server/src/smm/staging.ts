@@ -22,17 +22,17 @@ export function createSmmStagingApp(
   const raw = env.OXANA_DATABASE_URL ?? ''
   let url: URL
   try { url = new URL(raw) } catch { throw new Error('staging_db_config_invalid') }
-  if (!/^[a-f0-9]{64}$/.test(hash) ||
-      env.OXANA_REMINDERS !== 'disable' ||
-      env.OXANA_ALLOWED_USER_IDS !== STAGING_USER ||
-      url.protocol !== 'postgresql:' ||
-      url.pathname !== '/oxana_smm_test' ||
-      url.username !== 'smm_test_runtime' ||
-      !env.OXANA_DB_CONNECT_HOST ||
-      !env.OXANA_DB_CA_CERT?.includes('BEGIN CERTIFICATE') ||
-      env.OXANA_DB_SSL?.trim().toLowerCase() === 'disable') {
-    throw new Error('staging_config_invalid')
-  }
+  const invalid: string[] = []
+  if (!/^[a-f0-9]{64}$/.test(hash)) invalid.push('TOKEN_SHA256_FORMAT')
+  if (env.OXANA_REMINDERS !== 'disable') invalid.push('REMINDERS')
+  if (env.OXANA_ALLOWED_USER_IDS !== STAGING_USER) invalid.push('ALLOWED_USER_IDS')
+  if (url.protocol !== 'postgresql:') invalid.push('DB_PROTOCOL')
+  if (url.pathname !== '/oxana_smm_test') invalid.push('DB_NAME')
+  if (url.username !== 'smm_test_runtime') invalid.push('DB_USER')
+  if (!env.OXANA_DB_CONNECT_HOST) invalid.push('DB_CONNECT_HOST')
+  if (!env.OXANA_DB_CA_CERT?.includes('BEGIN CERTIFICATE')) invalid.push('DB_CA_CERT')
+  if (env.OXANA_DB_SSL?.trim().toLowerCase() === 'disable') invalid.push('DB_SSL_DISABLED')
+  if (invalid.length) throw new Error('staging_config_invalid: ' + invalid.join(','))
   const verifier = {
     provider: 'isolated-staging',
     async verifyAccessToken(token: string) {
