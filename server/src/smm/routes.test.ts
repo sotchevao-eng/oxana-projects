@@ -75,3 +75,13 @@ test('isolated staging requires explicit opt-in and valid hashed test token; pro
     else process.env.OXANA_ALLOWED_USER_IDS=previous
   }
 })
+
+import { classifyTsgAddress, validateCandidate } from './monitoring.js'
+test('municipal source address triage never treats neighboring house numbers as exact',()=>{
+ for(const s of ['Васильевский проезд, д. 3','проезд Васильевский, дом 3','Васильевский пр-д, 3, 5'])assert.equal(classifyTsgAddress(s),'exact_house')
+ for(const s of ['Васильевский проезд, 13','Васильевский проезд, 30','Васильевский проезд, 31','Васильевский проезд, 3а','Васильевский проезд, 3/1','Васильевский проезд, 3 корп. 1','Васильевский проезд'])assert.equal(classifyTsgAddress(s),'street_review')
+ assert.equal(classifyTsgAddress('улица Ленина, 3'),'no_match')
+ const candidate=validateCandidate({sourceId:'water-ryazan',title:'Васильевский проезд, д. 3',url:'https://vodokanalryazan.ru/press-tsentr/remontnye-raboty/synthetic',date:'2026-11-28'})
+ assert.equal(candidate?.verification,'unverified')
+ assert.equal(candidate?.addressMatch,'exact_house')
+})
