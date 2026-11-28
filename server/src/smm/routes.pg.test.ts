@@ -22,10 +22,11 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
     assert.equal(existing.rows[0].schema,null,'Test database must be empty')
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-001.sql',import.meta.url),'utf8'))
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-002.sql',import.meta.url),'utf8'))
+    await pool.query(await readFile(new URL('../../../russian-postgres/smm-003.sql',import.meta.url),'utf8'))
     await pool.query("CREATE ROLE smm_runtime LOGIN PASSWORD 'smm_runtime_test_only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT")
-    await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.plan_items TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
+    await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.plan_items,smm.studio_requests TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
     assert.equal((await runtime.query('SELECT current_user AS role')).rows[0].role,'smm_runtime')
-    for (const sql of ['DELETE FROM smm.plan_items','DELETE FROM smm.communities','UPDATE smm.post_versions SET body=body','DELETE FROM smm.approvals','SELECT * FROM smm.budget_limits','SELECT * FROM smm.audit_logs','CREATE TABLE smm.forbidden(id int)']) {
+    for (const sql of ['DELETE FROM smm.studio_requests','DELETE FROM smm.plan_items','DELETE FROM smm.communities','UPDATE smm.post_versions SET body=body','DELETE FROM smm.approvals','SELECT * FROM smm.budget_limits','SELECT * FROM smm.audit_logs','CREATE TABLE smm.forbidden(id int)']) {
       await assert.rejects(runtime.query(sql), {code:'42501'})
     }
     const app=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:token==='owner-b'?B:null},()=>runtime,()=>true)
@@ -53,6 +54,18 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
     assert.equal((await call('/studio/preview','POST',studio,'owner-b')).status,404)
     assert.equal((await call('/studio/preview','POST',{...studio,tone:'unknown'})).status,400)
     assert.equal((await call('/studio/generate','POST',studio)).status,403)
+    const requestId='33333333-3333-4333-8333-333333333333'
+    assert.equal((await call('/studio/simulate','POST',{requestId,confirm:false})).status,400)
+    const simulations=await Promise.all([call('/studio/simulate','POST',{requestId,confirm:true}),call('/studio/simulate','POST',{requestId,confirm:true})])
+    assert.deepEqual(simulations.map(x=>x.status).sort(),[200,409])
+    assert.equal(simulations.find(x=>x.status===200)?.data.realTokens,0)
+    for(let i=0;i<4;i++)assert.equal((await call('/studio/simulate','POST',{requestId:'44444444-4444-4444-8444-44444444444'+i,confirm:true})).status,200)
+    assert.equal((await call('/studio/simulate','POST',{requestId:'55555555-5555-4555-8555-555555555555',confirm:true})).status,429)
+    const quota=await call('/studio/quota')
+    assert.equal(quota.data.day_requests,5)
+    assert.equal(quota.data.month_reserved,20000)
+    assert.equal(quota.data.realTokens,0)
+    assert.equal((await call('/studio/quota','GET',undefined,'owner-b')).data.day_requests,0)
     const plan={communityId:cid,topic:'Synthetic topic',date:'2026-12-01',time:'09:30'}
     assert.equal((await call('/plan','POST',{...plan,date:'2026-02-30'})).status,400)
     assert.equal((await call('/plan','POST',{...plan,time:'25:00'})).status,400)
