@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
+import { createMunicipalScheduler, type MunicipalScheduler } from './municipalScheduler.js'
 import { createTsgCallback } from './tsgCallback.js'
 import { createSmmRouter } from './routes.js'
 import { getOxanaPool } from '../oxana/db.js'
@@ -11,6 +12,7 @@ export const STAGING_USER = '11111111-1111-4111-8111-111111111111'
 export function createSmmStagingApp(
   env: NodeJS.ProcessEnv = process.env,
   pool: () => Pool = getOxanaPool,
+  municipal: MunicipalScheduler = createMunicipalScheduler(env,pool),
 ) {
   // This app deliberately never mounts production PII, OXANA or reminder routes.
   const app = new Hono()
@@ -55,7 +57,7 @@ export function createSmmStagingApp(
     app.get('/smm-test/app.js', c => c.text(stagingJs,200,{'Content-Type':'application/javascript; charset=utf-8'}))
   }
   app.route('/api/vk/tsg-callback',createTsgCallback(env,pool))
-  app.route('/api/smm', createSmmRouter(verifier, pool, () => env.OXANA_SMM_ENABLED === 'true', env))
+  app.route('/api/smm', createSmmRouter(verifier, pool, () => env.OXANA_SMM_ENABLED === 'true', env, municipal))
   app.onError((_error,c) => c.json({ok:false,error:'staging_request_failed'},500))
   return app
 }
