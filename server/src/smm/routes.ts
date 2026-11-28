@@ -3,6 +3,7 @@ import { createRequireOxanaOwner } from '../oxana/auth.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from '../oxana/tokenVerifier.js'
 import { getOxanaPool } from '../oxana/db.js'
 import type { Pool, PoolClient } from 'pg'
+import { providerCatalog } from './providers.js'
 import { personalSmoke } from './personalSmoke.js'
 import { isGigachatConfigured } from '../oxana/gigachatClient.js'
 
@@ -45,6 +46,7 @@ export function createSmmRouter(
     if (!enabled()) return c.json({ ok: false, error: 'smm_disabled' }, 503)
     await next()
   })
+  app.get('/studio/providers', c => c.json(providerCatalog()))
   app.get('/status', c => c.json({ ok: true, publicationEnabled: false, paidGenerationEnabled: false }))
   app.get('/communities', async c => {
     const result = await pool().query('SELECT id,name,editorial_policy,created_at FROM smm.communities WHERE owner_id=$1 ORDER BY created_at,id', [c.get('userId')])
