@@ -7,6 +7,10 @@ export const monitoringSources = [
  {id:'kad',group:'tax',name:'Картотека арбитражных дел',url:'https://kad.arbitr.ru/',topic:'Судебная практика'},
  {id:'gis-housing',group:'home',name:'ГИС ЖКХ',url:'https://dom.gosuslugi.ru/',topic:'Жилищно-коммунальное хозяйство'},
  {id:'law-home',group:'home',name:'Официальное опубликование правовых актов',url:'https://publication.pravo.gov.ru/',topic:'Жилищное законодательство'},
+ {id:'water-ryazan',group:'home',name:'Водоканал Рязани',url:'https://vodokanalryazan.ru/press-tsentr/remontnye-raboty',topic:'Отключения холодной воды'},
+ {id:'energy-ryazan',group:'home',name:'Р-Энергия',url:'https://r-energiya.ru/private-clients/elektrosnabzhenie/avarijnye-sluzhby-setevyh-organizacij-kopiya.html',topic:'Электроснабжение и аварийные службы'},
+ {id:'city-ryazan',group:'home',name:'Администрация Рязани',url:'https://www.admrzn.ryazan.gov.ru/announcements/',topic:'Объявления об отключениях'},
+ {id:'heat-ryazan',group:'home',name:'МУП РМПТС',url:'https://rmpts.ru/press-tsentr/novosti',topic:'Отопление и горячая вода'},
  {id:'region',group:'home',name:'Правительство Рязанской области',url:'https://ryazan.gov.ru/',topic:'Региональные новости'},
  {id:'culture',group:'history',name:'Культура.РФ',url:'https://www.culture.ru/',topic:'История и культурные мероприятия'},
  {id:'archive',group:'history',name:'Росархив',url:'https://archives.gov.ru/',topic:'Архивные исторические материалы'},
@@ -27,4 +31,15 @@ export function validateCandidate(input:unknown){
   if(u.protocol!=='https:'||u.username||u.password||u.port||u.hostname!==base.hostname||u.pathname==='/'||u.hash)return null
   return {sourceId:source.id,title:x.title.trim(),url:u.href,date:x.date,verification:'unverified',sourceName:source.name}
  }catch{return null}
+}
+
+/** Conservative triage only; not proof of an outage. */
+export function classifyTsgAddress(text:string):'exact_house'|'street_review'|'no_match'{
+ const normalized=text.toLowerCase().replace(/ё/g,'е').replace(/\u00a0/g,' ')
+ const street=/(?:васильевский\s+(?:проезд|пр-д|пр\.)|(?:проезд|пр-д|пр\.)\s+васильевский)(?![а-я])/gu
+ for(const m of normalized.matchAll(street)){
+  const rest=normalized.slice((m.index??0)+m[0].length)
+  if(/^\s*[,】【：]?\s*(?:дома?\s*|д\.\s*)?(?:№\s*)?3(?![\dа-я/\-–—])(?!(?:\s+(?:корп(?:ус)?\.?|к\.|стр(?:оение)?\.?)))/u.test(rest))return 'exact_house'
+ }
+ return normalized.match(street)?'street_review':'no_match'
 }
