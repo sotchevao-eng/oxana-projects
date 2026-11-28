@@ -39,13 +39,29 @@ function plain(html:string){
  return html.replace(/<br\s*\/?>|<\/(?:p|div|li|tr|h[1-6])>/gi,' ').replace(/<[^>]*>/g,' ').replace(/&(?:nbsp|#160);/gi,' ').replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/\s+/g,' ').trim()
 }
 export function titleDate(title:string):string|null{
- const m=title.match(/\b(\d{2})\.(\d{2})\.(20\d{2})\b/)
+ const m=title.match(/\b(\d{2})\.(\d{2})\.(20\d{2}|\d{2})\b/)
  if(!m)return null
- const iso=m[3]+'-'+m[2]+'-'+m[1],d=new Date(iso+'T00:00:00Z')
+ const iso=(m[3].length===2?'20'+m[3]:m[3])+'-'+m[2]+'-'+m[1],d=new Date(iso+'T00:00:00Z')
  return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===iso?iso:null
 }
-export function parseMunicipalArticle(html:string){
+export function parseMunicipalArticle(html:string,sourceId?:string){
  const clean=html.replace(/<!--[\s\S]*?-->|<(script|style|nav|header|footer)\b[^>]*>[\s\S]*?<\/\1>/gi,' ')
+ const h1=clean.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)
+ if(sourceId==='rgres-ryazan'){
+  const title=plain(h1?.[1]??'').slice(0,500)
+  const after=h1?clean.slice((h1.index??0)+h1[0].length):''
+  const back=after.match(/<a\b[^>]*>\s*Назад к списку\s*<\/a>/i)
+  const body=back?plain(after.slice(0,back.index)): ''
+  if(!title||!body||!/(отключ|восстанов|работ|переключ)/i.test(title))return {title:title||'Заголовок не извлечён',addressMatch:'unknown',status:'parser_review'}
+  return {title,titleDate:titleDate(title),addressMatch:classifyTsgAddress(body),status:'review_required'}
+ }
+ if(sourceId==='gas-ryazan'){
+  const after=h1?clean.slice((h1.index??0)+h1[0].length):''
+  const heading=after.match(/<h[23]\b[^>]*>([\s\S]*?)<\/h[23]>/i)
+  const title=plain(heading?.[1]??'').slice(0,500)
+  // Schedules may be separate documents; no address conclusion from summary alone.
+  return {title:title||'Газоснабжение — материал требует проверки',addressMatch:'unknown',status:'parser_review'}
+ }
  const main=clean.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1]??clean.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1]
  const title=plain(clean.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]??'').slice(0,500)
  if(!main||!title)return {title:title||'Заголовок не извлечён',addressMatch:'unknown',status:'parser_review'}
@@ -65,7 +81,7 @@ export async function probeMunicipalSources(request:typeof fetch=fetch,expanded=
    const articles=[]
    for(let i=0;i<links.length;i+=3){
    const batch=await Promise.all(links.slice(i,i+3).map(async url=>{
-    try{return {url,...parseMunicipalArticle(await boundedHtml(url,request))}}
+    try{return {url,...parseMunicipalArticle(await boundedHtml(url,request),s.id)}}
     catch(e){return {url,title:'Не удалось прочитать объявление',addressMatch:'unknown',status:diagnostic(e)}}
    }))
    articles.push(...batch)
