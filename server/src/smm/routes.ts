@@ -4,6 +4,7 @@ import { createConfiguredTokenVerifier, type TokenVerifier } from '../oxana/toke
 import { getOxanaPool } from '../oxana/db.js'
 import type { Pool, PoolClient } from 'pg'
 import { vkReaderStatus, readOxanaWall, isVkDomain, vkDiagnostic } from './vkReader.js'
+import { probeMunicipalSources } from './municipalReader.js'
 import { monitoringCatalog, validateCandidate } from './monitoring.js'
 import { providerCatalog } from './providers.js'
 import { personalSmoke } from './personalSmoke.js'
@@ -50,6 +51,16 @@ export function createSmmRouter(
   })
   app.get('/studio/providers', c => c.json(providerCatalog()))
   app.get('/monitoring/sources', c => c.json(monitoringCatalog()))
+  let municipalBusy=false,municipalLast=0
+  app.post('/monitoring/probe',async c=>{
+    if(personalEnv?.OXANA_STAGING_SMOKE_ONLY!=='true'||personalEnv?.OXANA_SMM_STAGING_AUTH!=='true')return c.json({ok:false,error:'probe_disabled'},403)
+    const input=await c.req.json().catch(()=>null)
+    if(!input||input.confirm!==true||Object.keys(input).length!==1)return c.json({ok:false,error:'explicit_confirmation_required'},400)
+    if(municipalBusy||Date.now()-municipalLast<60000)return c.json({ok:false,error:'probe_rate_limit'},429)
+    municipalBusy=true;municipalLast=Date.now()
+    try{return c.json({ok:true,checkedAt:new Date().toISOString(),sources:await probeMunicipalSources(),automaticCollection:false})}
+    finally{municipalBusy=false}
+  })
   app.post('/monitoring/preview',async c=>{
     const candidate=validateCandidate(await c.req.json().catch(()=>null))
     if(!candidate)return c.json({ok:false,error:'invalid_source_candidate'},400)
