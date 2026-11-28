@@ -30,3 +30,37 @@ test('SMM rejects unauthenticated calls, disabled mode and publication attempts'
     else process.env.OXANA_ALLOWED_USER_IDS = previous
   }
 })
+
+import { createHash } from 'node:crypto'
+import { createSmmStagingApp, STAGING_USER } from './staging.js'
+
+test('isolated staging requires explicit opt-in and valid hashed test token; production routes absent', async () => {
+  const previous=process.env.OXANA_ALLOWED_USER_IDS
+  process.env.OXANA_ALLOWED_USER_IDS=STAGING_USER
+  try {
+    const token='a'.repeat(64)
+    const env={
+      OXANA_STAGING_SMOKE_ONLY:'true', OXANA_SMM_STAGING_AUTH:'true',
+      OXANA_SMM_ENABLED:'true', OXANA_REMINDERS:'disable',
+      OXANA_ALLOWED_USER_IDS:STAGING_USER,
+      OXANA_SMM_TEST_TOKEN_SHA256:createHash('sha256').update(token).digest('hex'),
+      OXANA_DATABASE_URL:'postgresql://smm_test_runtime:fake@example.invalid/oxana_smm_test',
+      OXANA_DB_CONNECT_HOST:'192.168.0.1', OXANA_DB_CA_CERT:'BEGIN CERTIFICATE',
+    }
+    assert.equal((await createSmmStagingApp({},neverPool).request('/api/smm/status')).status,404)
+    assert.throws(()=>createSmmStagingApp({...env,OXANA_DATABASE_URL:'postgresql://smm_test_runtime:fake@example.invalid/default_db'},neverPool))
+    assert.throws(()=>createSmmStagingApp({...env,OXANA_SMM_TEST_TOKEN_SHA256:''},neverPool))
+    const app=createSmmStagingApp(env,neverPool)
+    const headers={Authorization:'Bearer '+token}
+    assert.equal((await app.request('/api/smm/status')).status,401)
+    assert.equal((await app.request('/api/smm/status',{headers:{Authorization:'Bearer '+'b'.repeat(64)}})).status,401)
+    assert.equal((await app.request('/api/smm/status',{headers})).status,200)
+    assert.equal((await app.request('/api/smm/posts/22222222-2222-4222-8222-222222222222/publish',{method:'POST',headers})).status,403)
+    assert.equal((await app.request('/api/oxana/tasks',{headers})).status,404)
+    assert.equal((await app.request('/api/public/brief-pii',{method:'POST',headers})).status,404)
+    assert.equal((await createSmmStagingApp({...env,OXANA_SMM_ENABLED:'false'},neverPool).request('/api/smm/status',{headers})).status,503)
+  } finally {
+    if(previous===undefined)delete process.env.OXANA_ALLOWED_USER_IDS
+    else process.env.OXANA_ALLOWED_USER_IDS=previous
+  }
+})
