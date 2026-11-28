@@ -3,7 +3,7 @@ import { createRequireOxanaOwner } from '../oxana/auth.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from '../oxana/tokenVerifier.js'
 import { getOxanaPool } from '../oxana/db.js'
 import type { Pool, PoolClient } from 'pg'
-import { vkReaderStatus, readOxanaWall, isVkDomain } from './vkReader.js'
+import { vkReaderStatus, readOxanaWall, isVkDomain, vkDiagnostic } from './vkReader.js'
 import { monitoringCatalog, validateCandidate } from './monitoring.js'
 import { providerCatalog } from './providers.js'
 import { personalSmoke } from './personalSmoke.js'
@@ -64,7 +64,7 @@ export function createSmmRouter(
     if(vkBusy||Date.now()-(vkLast.get(input.domain)??0)<30000)return c.json({ok:false,error:'vk_read_rate_limit'},429)
     vkBusy=true;vkLast.set(input.domain,Date.now())
     try{return c.json(await readOxanaWall(personalEnv,fetch,input.domain))}
-    catch{return c.json({ok:false,error:'vk_read_failed'},502)}
+    catch(e){return c.json({ok:false,error:'vk_read_failed',diagnostic:vkDiagnostic(e)},502)}
     finally{vkBusy=false}
   })
   app.get('/status', c => c.json({ ok: true, publicationEnabled: false, paidGenerationEnabled: false }))
