@@ -29,7 +29,7 @@ export function validateCandidate(input:unknown){
  try{
   const u=new URL(x.url), base=new URL(source.url)
   if(u.protocol!=='https:'||u.username||u.password||u.port||u.hostname!==base.hostname||u.pathname==='/'||u.hash)return null
-  return {sourceId:source.id,title:x.title.trim(),url:u.href,date:x.date,verification:'unverified',sourceName:source.name}
+  return {sourceId:source.id,title:x.title.trim(),url:u.href,date:x.date,verification:'unverified',sourceName:source.name,...(source.group==='home'?{addressMatch:classifyTsgAddress(x.title)}:{})}
  }catch{return null}
 }
 
@@ -39,7 +39,7 @@ export function classifyTsgAddress(text:string):'exact_house'|'street_review'|'n
  const street=/(?:васильевский\s+(?:проезд|пр-д|пр\.)|(?:проезд|пр-д|пр\.)\s+васильевский)(?![а-я])/gu
  for(const m of normalized.matchAll(street)){
   const rest=normalized.slice((m.index??0)+m[0].length)
-  if(/^\s*[,】【：]?\s*(?:дома?\s*|д\.\s*)?(?:№\s*)?3(?![\dа-я/\-–—])(?!(?:\s+(?:корп(?:ус)?\.?|к\.|стр(?:оение)?\.?)))/u.test(rest))return 'exact_house'
+  if(/^\s*[,:]?\s*(?:дома?\s*|д\.\s*)?(?:№\s*)?3(?![\dа-я/\-–—])(?!(?:\s+(?:корп(?:ус)?\.?|к\.|стр(?:оение)?\.?)))/u.test(rest))return 'exact_house'
  }
  return normalized.match(street)?'street_review':'no_match'
 }
