@@ -181,6 +181,36 @@ export function createSmmRouter(
     const brief=['ЗАДАНИЕ ДЛЯ ИИ (предпросмотр, без обращения к модели)','Сообщество: '+group.name,'Тема: '+topic,'Тон: '+tones[tone],'Объем: '+lengths[length],'Редакционные правила: '+group.editorial_policy,'Подготовь заголовок, текст, уместные хештеги и идею иллюстрации. Не выдумывай факты, источники или ссылки. Отметь утверждения, требующие проверки. Не используй персональные данные и закрытые сведения. Результат — только черновик для ручного согласования.'].join('\n')
     return c.json({ok:true,mode:'preview',brief,externalRequests:0,chargedKopecks:0})
   })
+  // Deliberately simulated: no provider client, no external request, no arbitrary prompt.
+  app.get('/studio/quota',async c=>{
+    const q=await pool().query(`SELECT count(*) FILTER (WHERE created_at >= date_trunc('day',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')::int AS day_requests,
+      count(*) FILTER (WHERE created_at >= date_trunc('month',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')::int AS month_requests,
+      coalesce(sum(reserved_tokens) FILTER (WHERE created_at >= date_trunc('month',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow'),0)::int AS month_reserved
+      FROM smm.studio_requests WHERE owner_id=$1`,[c.get('userId')])
+    return c.json({ok:true,mode:'simulation',dayLimit:5,monthLimit:30,monthTokenLimit:120000,realTokens:0,chargedKopecks:0,...q.rows[0]})
+  })
+  app.post('/studio/simulate',async c=>{
+    const owner=c.get('userId'),input=await c.req.json().catch(()=>null),id=input?.requestId
+    if(typeof id!=='string'||!uuid.test(id)||input?.confirm!==true)return c.json({ok:false,error:'explicit_confirmation_required'},400)
+    const result=await transaction(pool(),async db=>{
+      await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,8317))',[owner])
+      const existing=await db.query('SELECT state FROM smm.studio_requests WHERE owner_id=$1 AND request_id=$2',[owner,id])
+      if(existing.rowCount)return 'duplicate'
+      const counts=await db.query(`SELECT count(*) FILTER (WHERE created_at >= date_trunc('day',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')::int AS d,
+        count(*) FILTER (WHERE created_at >= date_trunc('month',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')::int AS m,
+        coalesce(sum(reserved_tokens) FILTER (WHERE created_at >= date_trunc('month',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow'),0)::int AS t,
+        count(*) FILTER (WHERE state='reserved')::int AS active FROM smm.studio_requests WHERE owner_id=$1`,[owner])
+      const n=counts.rows[0]
+      if(n.active>0)return 'busy'
+      if(n.d>=5||n.m>=30||n.t+4000>120000)return 'limit'
+      await db.query("INSERT INTO smm.studio_requests(owner_id,request_id,mode,reserved_tokens,state) VALUES($1,$2,'simulation',4000,'reserved')",[owner,id])
+      await db.query("UPDATE smm.studio_requests SET state='completed',actual_tokens=0 WHERE owner_id=$1 AND request_id=$2",[owner,id])
+      return 'ok'
+    })
+    if(result==='duplicate'||result==='busy')return c.json({ok:false,error:result},409)
+    if(result==='limit')return c.json({ok:false,error:'simulation_limit'},429)
+    return c.json({ok:true,mode:'simulation',text:'ТЕСТОВЫЙ МАКЕТ. Это не ответ нейросети. Проверка прохождения запроса и лимитов завершена.',realTokens:0,externalRequests:0,chargedKopecks:0})
+  })
   app.post('/studio/generate',c=>c.json({ok:false,error:'paid_generation_disabled'},403))
   // No publisher, scheduler, media or external AI calls in this version.
   app.post('/posts/:id/publish',c=>c.json({ok:false,error:'publication_disabled'},403))
