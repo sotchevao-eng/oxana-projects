@@ -85,3 +85,18 @@ test('municipal source address triage never treats neighboring house numbers as 
  assert.equal(candidate?.verification,'unverified')
  assert.equal(candidate?.addressMatch,'exact_house')
 })
+
+import { discoverLinks, parseMunicipalArticle, probeMunicipalSources } from './municipalReader.js'
+test('municipal parsing is conservative and external links are rejected',async()=>{
+ const base='https://vodokanalryazan.ru/press-tsentr/remontnye-raboty',path='/press-tsentr/remontnye-raboty/'
+ const url=base+'/otklyuchenie-test'
+ const html='<a href="'+url+'">test</a><a href="https://example.org'+path+'otklyuchenie">foreign</a>'
+ assert.deepEqual(discoverLinks(html,base,path),[url])
+ assert.equal(parseMunicipalArticle('<h1>Тест</h1><article>Васильевский проезд, д. 3</article>').addressMatch,'exact_house')
+ assert.equal(parseMunicipalArticle('<h1>Тест</h1><footer>Васильевский проезд, д. 3</footer><article>Другой адрес</article>').addressMatch,'no_match')
+ assert.equal(parseMunicipalArticle('<h1>Тест</h1>').addressMatch,'unknown')
+ const mock:typeof fetch=async input=>String(input)===base?new Response(html,{headers:{'content-type':'text/html'}}):String(input)===url?new Response('<h1>Тест</h1><article>Васильевский проезд, 13</article>',{headers:{'content-type':'text/html'}}):new Response('',{status:302})
+ const result=await probeMunicipalSources(mock)
+ assert.equal(result[0].articles[0].addressMatch,'street_review')
+ assert.equal(result[1].diagnostic,'http_302')
+})
