@@ -3,6 +3,7 @@ import { createRequireOxanaOwner } from '../oxana/auth.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from '../oxana/tokenVerifier.js'
 import { getOxanaPool } from '../oxana/db.js'
 import type { Pool, PoolClient } from 'pg'
+import { monitoringCatalog, validateCandidate } from './monitoring.js'
 import { providerCatalog } from './providers.js'
 import { personalSmoke } from './personalSmoke.js'
 import { isGigachatConfigured } from '../oxana/gigachatClient.js'
@@ -47,6 +48,12 @@ export function createSmmRouter(
     await next()
   })
   app.get('/studio/providers', c => c.json(providerCatalog()))
+  app.get('/monitoring/sources', c => c.json(monitoringCatalog()))
+  app.post('/monitoring/preview',async c=>{
+    const candidate=validateCandidate(await c.req.json().catch(()=>null))
+    if(!candidate)return c.json({ok:false,error:'invalid_source_candidate'},400)
+    return c.json({ok:true,candidate,externalCalls:false})
+  })
   app.get('/status', c => c.json({ ok: true, publicationEnabled: false, paidGenerationEnabled: false }))
   app.get('/communities', async c => {
     const result = await pool().query('SELECT id,name,editorial_policy,created_at FROM smm.communities WHERE owner_id=$1 ORDER BY created_at,id', [c.get('userId')])
