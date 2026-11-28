@@ -3,7 +3,7 @@ import { createRequireOxanaOwner } from '../oxana/auth.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from '../oxana/tokenVerifier.js'
 import { getOxanaPool } from '../oxana/db.js'
 import type { Pool, PoolClient } from 'pg'
-import { vkReaderStatus, readOxanaWall } from './vkReader.js'
+import { vkReaderStatus, readOxanaWall, isVkDomain } from './vkReader.js'
 import { monitoringCatalog, validateCandidate } from './monitoring.js'
 import { providerCatalog } from './providers.js'
 import { personalSmoke } from './personalSmoke.js'
@@ -56,14 +56,14 @@ export function createSmmRouter(
     return c.json({ok:true,candidate,externalCalls:false})
   })
   app.get('/vk/status', c=>c.json(vkReaderStatus(personalEnv??{})))
-  let vkBusy=false, vkLast=0
+  let vkBusy=false; const vkLast=new Map<string,number>()
   app.post('/vk/read',async c=>{
     if(!personalEnv||!vkReaderStatus(personalEnv).readEnabled)return c.json({ok:false,error:'vk_read_disabled'},403)
     const input=await c.req.json().catch(()=>null)
-    if(!input||input.confirm!==true||Object.keys(input).length!==1)return c.json({ok:false,error:'explicit_confirmation_required'},400)
-    if(vkBusy||Date.now()-vkLast<30000)return c.json({ok:false,error:'vk_read_rate_limit'},429)
-    vkBusy=true;vkLast=Date.now()
-    try{return c.json(await readOxanaWall(personalEnv))}
+    if(!input||input.confirm!==true||!isVkDomain(input.domain)||Object.keys(input).length!==2)return c.json({ok:false,error:'explicit_confirmation_required'},400)
+    if(vkBusy||Date.now()-(vkLast.get(input.domain)??0)<30000)return c.json({ok:false,error:'vk_read_rate_limit'},429)
+    vkBusy=true;vkLast.set(input.domain,Date.now())
+    try{return c.json(await readOxanaWall(personalEnv,fetch,input.domain))}
     catch{return c.json({ok:false,error:'vk_read_failed'},502)}
     finally{vkBusy=false}
   })
