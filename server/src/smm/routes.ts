@@ -3,6 +3,7 @@ import { createRequireOxanaOwner } from '../oxana/auth.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from '../oxana/tokenVerifier.js'
 import { getOxanaPool } from '../oxana/db.js'
 import type { Pool, PoolClient } from 'pg'
+import { isGigachatConfigured } from '../oxana/gigachatClient.js'
 
 type Env = { Variables: { userId: string } }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -166,7 +167,22 @@ export function createSmmRouter(
     if(result==='conflict')return c.json({ok:false,error:'version_conflict'},409)
     return c.json({ok:true,revision:revision+1})
   })
-  // No publisher, scheduler, media or AI credentials in this version.
+  app.get('/studio/status',c=>c.json({ok:true,mode:'preview',providerConfigured:isGigachatConfigured(),paidGenerationEnabled:false,monthlyLimitKopecks:0,externalRequestsEnabled:false}))
+  app.post('/studio/preview',async c=>{
+    const input=await c.req.json().catch(()=>null),owner=c.get('userId')
+    const topic=field(input?.topic,500),community=input?.communityId
+    const tone=input?.tone,length=input?.length
+    if(!topic||typeof community!=='string'||!uuid.test(community)||!['informative','expert','sales'].includes(tone)||!['short','medium','long'].includes(length))return c.json({ok:false,error:'invalid_studio_input'},400)
+    const result=await pool().query('SELECT name,editorial_policy FROM smm.communities WHERE owner_id=$1 AND id=$2',[owner,community])
+    if(!result.rowCount)return c.json({ok:false,error:'not_found'},404)
+    const group=result.rows[0]
+    const tones:Record<string,string>={informative:'информационный',expert:'экспертный',sales:'продающий'}
+    const lengths:Record<string,string>={short:'до 500 знаков',medium:'до 1200 знаков',long:'до 2500 знаков'}
+    const brief=['ЗАДАНИЕ ДЛЯ ИИ (предпросмотр, без обращения к модели)','Сообщество: '+group.name,'Тема: '+topic,'Тон: '+tones[tone],'Объем: '+lengths[length],'Редакционные правила: '+group.editorial_policy,'Подготовь заголовок, текст, уместные хештеги и идею иллюстрации. Не выдумывай факты, источники или ссылки. Отметь утверждения, требующие проверки. Не используй персональные данные и закрытые сведения. Результат — только черновик для ручного согласования.'].join('\n')
+    return c.json({ok:true,mode:'preview',brief,externalRequests:0,chargedKopecks:0})
+  })
+  app.post('/studio/generate',c=>c.json({ok:false,error:'paid_generation_disabled'},403))
+  // No publisher, scheduler, media or external AI calls in this version.
   app.post('/posts/:id/publish',c=>c.json({ok:false,error:'publication_disabled'},403))
   return app
 }
