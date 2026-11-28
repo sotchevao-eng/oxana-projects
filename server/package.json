@@ -18,7 +18,7 @@
     "test": "tsx --test --test-concurrency=1 src/listen.test.ts src/safeLog.test.ts src/oxana/db.network.test.ts src/oxana/reminderScheduler.test.ts src/oxana/gigachat.test.ts src/oxana/taskDue.test.ts src/oxana/idempotency.test.ts src/oxana/aiPropose.test.ts src/oxana/aiProposeUpdate.test.ts src/oxana/chatHistory.test.ts src/oxana/aiOrchestrator.test.ts src/oxana/oxana.test.ts src/oxana/taskCreateIdempotency.pg.test.ts src/smm/routes.test.ts",
     "test:oxana-db": "tsx scripts/oxana-local-db.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:smm": "tsx --test src/smm/routes.test.ts src/smm/personalSmoke.test.ts"
+    "test:smm": "tsx --test src/smm/routes.test.ts src/smm/personalSmoke.test.ts src/smm/tsgCallback.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.6",
