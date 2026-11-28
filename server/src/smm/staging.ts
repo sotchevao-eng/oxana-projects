@@ -53,7 +53,7 @@ export function createSmmStagingApp(
     app.get('/smm-test/style.css', c => c.text(stagingCss,200,{'Content-Type':'text/css; charset=utf-8'}))
     app.get('/smm-test/app.js', c => c.text(stagingJs,200,{'Content-Type':'application/javascript; charset=utf-8'}))
   }
-  app.route('/api/smm', createSmmRouter(verifier, pool, () => env.OXANA_SMM_ENABLED === 'true'))
+  app.route('/api/smm', createSmmRouter(verifier, pool, () => env.OXANA_SMM_ENABLED === 'true', env))
   app.onError((_error,c) => c.json({ok:false,error:'staging_request_failed'},500))
   return app
 }
