@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server'
-import { Hono } from 'hono'
+import { createSmmStagingApp } from './smm/staging.js'
 import { closePiiPool } from './db.js'
 import { resolveListenOptions } from './listen.js'
 import { closeOxanaPool } from './oxana/db.js'
@@ -10,10 +10,7 @@ import {
 } from './oxana/reminderScheduler.js'
 
 const isolatedSmoke = process.env.OXANA_STAGING_SMOKE_ONLY === 'true'
-const app = isolatedSmoke ? new Hono() : (await import('./app.js')).createApp()
-if (isolatedSmoke) {
-  app.get('/api/health', c => c.json({ ok: true, service: 'oxana-smm-staging', smokeOnly: true }))
-}
+const app = isolatedSmoke ? createSmmStagingApp() : (await import('./app.js')).createApp()
 const { port, hostname } = resolveListenOptions()
 
 const server = serve({ fetch: app.fetch, port, hostname }, () => {
