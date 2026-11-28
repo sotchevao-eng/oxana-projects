@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Settings,
   Sparkles,
+  Megaphone,
 } from 'lucide-react'
 
 export interface AdminNavItem {
@@ -40,6 +41,11 @@ export const adminPrimaryNav: AdminNavItem[] = [
     label: 'ОКСИ',
     to: '/admin/oxana',
     icon: Sparkles,
+  },
+  {
+    label: 'OXANA SMM',
+    to: '/admin/smm',
+    icon: Megaphone,
   },
   {
     label: 'Заявки',

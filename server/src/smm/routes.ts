@@ -1,0 +1,307 @@
+import { Hono } from 'hono'
+import { createRequireOxanaOwner } from '../oxana/auth.js'
+import { createConfiguredTokenVerifier, type TokenVerifier } from '../oxana/tokenVerifier.js'
+import { getOxanaPool } from '../oxana/db.js'
+import type { Pool, PoolClient } from 'pg'
+import { vkReaderStatus, readOxanaWall, isVkDomain, vkDiagnostic } from './vkReader.js'
+import { createMunicipalScheduler, type MunicipalScheduler } from './municipalScheduler.js'
+import { monitoringCatalog, validateCandidate } from './monitoring.js'
+import { providerCatalog } from './providers.js'
+import { personalSmoke } from './personalSmoke.js'
+import { isGigachatConfigured } from '../oxana/gigachatClient.js'
+
+type Env = { Variables: { userId: string } }
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+function field(value: unknown, max: number): string | null {
+  if (typeof value !== 'string') return null
+  const s = value.trim()
+  return s.length > 0 && s.length <= max ? s : null
+}
+function planInput(input: any) {
+  const topic=field(input?.topic,500), date=input?.date, time=input?.time, community=input?.communityId
+  if(!topic||typeof community!=='string'||!uuid.test(community)||typeof date!=='string'||!/^20[0-9]{2}-[0-9]{2}-[0-9]{2}$/.test(date)||typeof time!=='string'||!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time)) return null
+  const parsed=new Date(date+'T00:00:00Z')
+  if(!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==date) return null
+  return {topic,date,time,community}
+}
+async function transaction<T>(pool: Pool, run: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await run(client)
+    await client.query('COMMIT')
+    return result
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally { client.release() }
+}
+
+export function createSmmRouter(
+  verifier: TokenVerifier = createConfiguredTokenVerifier(),
+  pool: () => Pool = getOxanaPool,
+  enabled: () => boolean = () => process.env.OXANA_SMM_ENABLED === 'true',
+  personalEnv?: NodeJS.ProcessEnv,
+  municipal: MunicipalScheduler = createMunicipalScheduler(personalEnv??{},pool),
+) {
+  const app = new Hono<Env>()
+  app.use('*', createRequireOxanaOwner(verifier))
+  app.use('*', async (c, next) => {
+    if (!enabled()) return c.json({ ok: false, error: 'smm_disabled' }, 503)
+    await next()
+  })
+  app.get('/studio/providers', c => c.json(providerCatalog()))
+  app.get('/monitoring/sources', c => c.json(monitoringCatalog()))
+  app.get('/notifications',async c=>{
+    if(personalEnv?.OXANA_STAGING_SMOKE_ONLY!=='true'||personalEnv?.OXANA_SMM_STAGING_AUTH!=='true')return c.json({ok:false,error:'notifications_disabled'},403)
+    const result=await pool().query(`SELECT n.source_id,n.url,n.title,n.title_date::text,n.address_match,n.last_changed::text AS version,
+      COALESCE(r.seen_version=n.last_changed,false) AS read
+      FROM smm.municipal_notices n LEFT JOIN smm.municipal_notification_reads r USING(owner_id,source_id,url)
+      WHERE n.owner_id=$1 AND n.address_match IN ('exact_house','street_review')
+      ORDER BY n.last_changed DESC,n.source_id,n.url LIMIT 100`,[c.get('userId')])
+    return c.json({ok:true,items:result.rows,externalDelivery:false})
+  })
+  app.post('/notifications/read',async c=>{
+    if(personalEnv?.OXANA_STAGING_SMOKE_ONLY!=='true'||personalEnv?.OXANA_SMM_STAGING_AUTH!=='true')return c.json({ok:false,error:'notifications_disabled'},403)
+    const x=await c.req.json().catch(()=>null)
+    if(!x||Object.keys(x).length!==3||!field(x.sourceId,64)||!field(x.url,2000)||!field(x.version,80))return c.json({ok:false,error:'invalid_notification'},400)
+    const result=await pool().query(`INSERT INTO smm.municipal_notification_reads AS r(owner_id,source_id,url,seen_version)
+      SELECT owner_id,source_id,url,last_changed FROM smm.municipal_notices
+      WHERE owner_id=$1 AND source_id=$2 AND url=$3 AND last_changed::text=$4 AND address_match IN ('exact_house','street_review')
+      ON CONFLICT(owner_id,source_id,url) DO UPDATE SET seen_version=EXCLUDED.seen_version,read_at=now()
+      WHERE r.seen_version<=EXCLUDED.seen_version RETURNING source_id`,[c.get('userId'),x.sourceId,x.url,x.version])
+    if(!result.rowCount)return c.json({ok:false,error:'notification_version_changed_or_missing'},409)
+    return c.json({ok:true})
+  })
+  app.get('/monitoring/journal',async c=>{
+    if(personalEnv?.OXANA_STAGING_SMOKE_ONLY!=='true'||personalEnv?.OXANA_SMM_STAGING_AUTH!=='true')return c.json({ok:false,error:'journal_disabled'},403)
+    const owner=c.get('userId')
+    const notices=await pool().query('SELECT source_id,url,title,title_date::text,address_match,first_seen,last_seen,last_changed FROM smm.municipal_notices WHERE owner_id=$1 ORDER BY title_date DESC NULLS LAST,last_seen DESC,source_id,url LIMIT 100',[owner])
+    const checks=await pool().query('SELECT checked_at,source_id,status,diagnostic,link_count,article_count FROM smm.municipal_checks WHERE owner_id=$1 ORDER BY checked_at DESC,id DESC LIMIT 30',[owner])
+    return c.json({ok:true,notices:notices.rows,checks:checks.rows,automaticCollection:municipal.status().running,scheduler:municipal.status()})
+  })
+  app.post('/monitoring/probe',async c=>{
+    if(personalEnv?.OXANA_STAGING_SMOKE_ONLY!=='true'||personalEnv?.OXANA_SMM_STAGING_AUTH!=='true')return c.json({ok:false,error:'probe_disabled'},403)
+    const input=await c.req.json().catch(()=>null)
+    if(!input||input.confirm!==true||Object.keys(input).length!==1)return c.json({ok:false,error:'explicit_confirmation_required'},400)
+    try{
+      const result=await municipal.manual(c.get('userId'))
+      if(result.kind==='disabled')return c.json({ok:false,error:'probe_disabled'},403)
+      if(result.kind!=='saved')return c.json({ok:false,error:'probe_rate_limit'},429,{'Retry-After':'60'})
+      return c.json({ok:true,checkedAt:result.checkedAt,sources:result.sources,automaticCollection:municipal.status().running,journalSaved:true})
+    }catch{return c.json({ok:false,error:'municipal_journal_failed'},503)}
+  })
+  app.post('/monitoring/preview',async c=>{
+    const candidate=validateCandidate(await c.req.json().catch(()=>null))
+    if(!candidate)return c.json({ok:false,error:'invalid_source_candidate'},400)
+    return c.json({ok:true,candidate,externalCalls:false})
+  })
+  app.get('/vk/status', c=>c.json(vkReaderStatus(personalEnv??{})))
+  let vkBusy=false; const vkLast=new Map<string,number>()
+  app.post('/vk/read',async c=>{
+    if(!personalEnv||!vkReaderStatus(personalEnv).readEnabled)return c.json({ok:false,error:'vk_read_disabled'},403)
+    const input=await c.req.json().catch(()=>null)
+    if(!input||input.confirm!==true||!isVkDomain(input.domain)||Object.keys(input).length!==2)return c.json({ok:false,error:'explicit_confirmation_required'},400)
+    if(vkBusy||Date.now()-(vkLast.get(input.domain)??0)<30000)return c.json({ok:false,error:'vk_read_rate_limit'},429)
+    vkBusy=true;vkLast.set(input.domain,Date.now())
+    try{return c.json(await readOxanaWall(personalEnv,fetch,input.domain))}
+    catch(e){return c.json({ok:false,error:'vk_read_failed',diagnostic:vkDiagnostic(e)},502)}
+    finally{vkBusy=false}
+  })
+  app.get('/status', c => c.json({ ok: true, publicationEnabled: false, paidGenerationEnabled: false }))
+  app.get('/communities', async c => {
+    const result = await pool().query('SELECT id,name,editorial_policy,created_at FROM smm.communities WHERE owner_id=$1 ORDER BY created_at,id', [c.get('userId')])
+    return c.json({ ok: true, communities: result.rows })
+  })
+  app.post('/communities', async c => {
+    const input = await c.req.json().catch(() => null)
+    const name = field(input?.name, 200)
+    const policy = typeof input?.editorialPolicy === 'string' && input.editorialPolicy.length <= 10000 ? input.editorialPolicy.trim() : input?.editorialPolicy === undefined ? '' : null
+    if (!name || policy === null) return c.json({ ok:false,error:'invalid_community' },400)
+    const owner = c.get('userId')
+    const row = await transaction(pool(), async db => {
+      const result = await db.query('INSERT INTO smm.communities(owner_id,name,editorial_policy) VALUES($1,$2,$3) RETURNING id,name,editorial_policy', [owner,name,policy])
+      await db.query("INSERT INTO smm.audit_logs(owner_id,action,subject_id) VALUES($1,'community_created',$2)",[owner,result.rows[0].id])
+      return result.rows[0]
+    })
+    return c.json({ok:true,community:row},201)
+  })
+  app.patch('/communities/:id', async c => {
+    const id = c.req.param('id'), owner = c.get('userId')
+    const input = await c.req.json().catch(() => null)
+    const name = field(input?.name, 200)
+    const policy = typeof input?.editorialPolicy === 'string' && input.editorialPolicy.length <= 10000 ? input.editorialPolicy.trim() : null
+    if (!uuid.test(id) || !name || policy === null) return c.json({ok:false,error:'invalid_community'},400)
+    const row = await transaction(pool(), async db => {
+      const result = await db.query('UPDATE smm.communities SET name=$3,editorial_policy=$4 WHERE owner_id=$1 AND id=$2 RETURNING id,name,editorial_policy',[owner,id,name,policy])
+      if (!result.rowCount) return null
+      await db.query("INSERT INTO smm.audit_logs(owner_id,action,subject_id) VALUES($1,'community_updated',$2)",[owner,id])
+      return result.rows[0]
+    })
+    if (!row) return c.json({ok:false,error:'not_found'},404)
+    return c.json({ok:true,community:row})
+  })
+  app.get('/posts', async c => {
+    const result = await pool().query(`SELECT p.id,p.community_id,p.current_version,v.body,
+      EXISTS(SELECT 1 FROM smm.approvals a WHERE a.owner_id=p.owner_id AND a.post_id=p.id AND a.version=p.current_version) AS approved
+      FROM smm.posts p JOIN smm.post_versions v ON (v.owner_id,v.post_id,v.version)=(p.owner_id,p.id,p.current_version)
+      WHERE p.owner_id=$1 ORDER BY p.created_at DESC,p.id`,[c.get('userId')])
+    return c.json({ok:true,posts:result.rows})
+  })
+  app.post('/posts', async c => {
+    const input = await c.req.json().catch(() => null)
+    const body = field(input?.body,20000)
+    const community = input?.communityId
+    if (!body || typeof community !== 'string' || !uuid.test(community)) return c.json({ok:false,error:'invalid_post'},400)
+    const owner=c.get('userId')
+    const row=await transaction(pool(),async db=>{
+      const result=await db.query('INSERT INTO smm.posts(owner_id,community_id) SELECT owner_id,id FROM smm.communities WHERE owner_id=$1 AND id=$2 RETURNING id,current_version',[owner,community])
+      if (!result.rowCount) return null
+      const post=result.rows[0]
+      await db.query('INSERT INTO smm.post_versions(owner_id,post_id,version,body) VALUES($1,$2,1,$3)',[owner,post.id,body])
+      await db.query("INSERT INTO smm.audit_logs(owner_id,action,subject_id) VALUES($1,'post_created',$2)",[owner,post.id])
+      return post
+    })
+    if (!row) return c.json({ok:false,error:'not_found'},404)
+    return c.json({ok:true,post:row},201)
+  })
+  app.patch('/posts/:id',async c=>{
+    const id=c.req.param('id'), owner=c.get('userId')
+    const input=await c.req.json().catch(()=>null)
+    const body=field(input?.body,20000), expected=input?.version
+    if (!uuid.test(id)||!body||!Number.isSafeInteger(expected)||expected<1) return c.json({ok:false,error:'invalid_version'},400)
+    const result=await transaction(pool(),async db=>{
+      const p=await db.query('SELECT current_version FROM smm.posts WHERE owner_id=$1 AND id=$2 FOR UPDATE',[owner,id])
+      if (!p.rowCount) return 'missing'
+      if(p.rows[0].current_version!==expected) return 'conflict'
+      await db.query('INSERT INTO smm.post_versions(owner_id,post_id,version,body) VALUES($1,$2,$3,$4)',[owner,id,expected+1,body])
+      await db.query('UPDATE smm.posts SET current_version=$3 WHERE owner_id=$1 AND id=$2',[owner,id,expected+1])
+      await db.query("INSERT INTO smm.audit_logs(owner_id,action,subject_id) VALUES($1,'post_edited',$2)",[owner,id])
+      return 'ok'
+    })
+    if(result==='missing') return c.json({ok:false,error:'not_found'},404)
+    if(result==='conflict') return c.json({ok:false,error:'version_conflict'},409)
+    return c.json({ok:true,version:expected+1,approved:false})
+  })
+  app.post('/posts/:id/approve',async c=>{
+    const id=c.req.param('id'),owner=c.get('userId')
+    const input=await c.req.json().catch(()=>null)
+    const version=input?.version
+    if(!uuid.test(id)||!Number.isSafeInteger(version)||version<1||input?.confirm!==true) return c.json({ok:false,error:'explicit_confirmation_required'},400)
+    const result=await transaction(pool(),async db=>{
+      const p=await db.query('SELECT current_version FROM smm.posts WHERE owner_id=$1 AND id=$2 FOR UPDATE',[owner,id])
+      if(!p.rowCount) return 'missing'
+      if(p.rows[0].current_version!==version) return 'conflict'
+      const a=await db.query('INSERT INTO smm.approvals(owner_id,post_id,version) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[owner,id,version])
+      if(a.rowCount) await db.query("INSERT INTO smm.audit_logs(owner_id,action,subject_id) VALUES($1,'post_approved',$2)",[owner,id])
+      return 'ok'
+    })
+    if(result==='missing') return c.json({ok:false,error:'not_found'},404)
+    if(result==='conflict') return c.json({ok:false,error:'version_conflict'},409)
+    return c.json({ok:true,approved:true,publicationEnabled:false})
+  })
+  app.get('/plan',async c=>{
+    const rows=await pool().query("SELECT id,community_id,topic,to_char(planned_date,'YYYY-MM-DD') AS date,to_char(planned_time,'HH24:MI') AS time,revision FROM smm.plan_items WHERE owner_id=$1 ORDER BY planned_date,planned_time,id",[c.get('userId')])
+    return c.json({ok:true,items:rows.rows})
+  })
+  app.post('/plan',async c=>{
+    const p=planInput(await c.req.json().catch(()=>null)),owner=c.get('userId')
+    if(!p)return c.json({ok:false,error:'invalid_plan'},400)
+    const row=await transaction(pool(),async db=>{
+      const r=await db.query('INSERT INTO smm.plan_items(owner_id,community_id,topic,planned_date,planned_time) SELECT owner_id,id,$3,$4,$5 FROM smm.communities WHERE owner_id=$1 AND id=$2 RETURNING id,revision',[owner,p.community,p.topic,p.date,p.time])
+      if(!r.rowCount)return null
+      await db.query("INSERT INTO smm.audit_logs(owner_id,action,subject_id) VALUES($1,'plan_created',$2)",[owner,r.rows[0].id])
+      return r.rows[0]
+    })
+    if(!row)return c.json({ok:false,error:'not_found'},404)
+    return c.json({ok:true,item:row},201)
+  })
+  app.patch('/plan/:id',async c=>{
+    const id=c.req.param('id'),owner=c.get('userId'),input=await c.req.json().catch(()=>null),p=planInput(input),revision=input?.revision
+    if(!uuid.test(id)||!p||!Number.isSafeInteger(revision)||revision<1)return c.json({ok:false,error:'invalid_plan'},400)
+    const result=await transaction(pool(),async db=>{
+      const old=await db.query('SELECT revision FROM smm.plan_items WHERE owner_id=$1 AND id=$2 FOR UPDATE',[owner,id])
+      if(!old.rowCount)return 'missing'
+      if(old.rows[0].revision!==revision)return 'conflict'
+      const r=await db.query('UPDATE smm.plan_items SET community_id=$3,topic=$4,planned_date=$5,planned_time=$6,revision=revision+1 WHERE owner_id=$1 AND id=$2 AND EXISTS(SELECT 1 FROM smm.communities WHERE owner_id=$1 AND id=$3)',[owner,id,p.community,p.topic,p.date,p.time])
+      if(!r.rowCount)return 'missing'
+      await db.query("INSERT INTO smm.audit_logs(owner_id,action,subject_id) VALUES($1,'plan_updated',$2)",[owner,id])
+      return 'ok'
+    })
+    if(result==='missing')return c.json({ok:false,error:'not_found'},404)
+    if(result==='conflict')return c.json({ok:false,error:'version_conflict'},409)
+    return c.json({ok:true,revision:revision+1})
+  })
+  app.get('/studio/status',c=>c.json({ok:true,mode:'preview',providerConfigured:isGigachatConfigured(),paidGenerationEnabled:false,monthlyLimitKopecks:0,externalRequestsEnabled:false}))
+  app.post('/studio/preview',async c=>{
+    const input=await c.req.json().catch(()=>null),owner=c.get('userId')
+    const topic=field(input?.topic,500),community=input?.communityId
+    const tone=input?.tone,length=input?.length
+    if(!topic||typeof community!=='string'||!uuid.test(community)||!['informative','expert','sales'].includes(tone)||!['short','medium','long'].includes(length))return c.json({ok:false,error:'invalid_studio_input'},400)
+    const result=await pool().query('SELECT name,editorial_policy FROM smm.communities WHERE owner_id=$1 AND id=$2',[owner,community])
+    if(!result.rowCount)return c.json({ok:false,error:'not_found'},404)
+    const group=result.rows[0]
+    const tones:Record<string,string>={informative:'информационный',expert:'экспертный',sales:'продающий'}
+    const lengths:Record<string,string>={short:'до 500 знаков',medium:'до 1200 знаков',long:'до 2500 знаков'}
+    const brief=['ЗАДАНИЕ ДЛЯ ИИ (предпросмотр, без обращения к модели)','Сообщество: '+group.name,'Тема: '+topic,'Тон: '+tones[tone],'Объем: '+lengths[length],'Редакционные правила: '+group.editorial_policy,'Подготовь заголовок, текст, уместные хештеги и идею иллюстрации. Не выдумывай факты, источники или ссылки. Отметь утверждения, требующие проверки. Не используй персональные данные и закрытые сведения. Результат — только черновик для ручного согласования.'].join('\n')
+    return c.json({ok:true,mode:'preview',brief,externalRequests:0,chargedKopecks:0})
+  })
+  // Deliberately simulated: no provider client, no external request, no arbitrary prompt.
+  app.get('/studio/quota',async c=>{
+    const q=await pool().query(`SELECT count(*) FILTER (WHERE created_at >= date_trunc('day',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')::int AS day_requests,
+      count(*) FILTER (WHERE created_at >= date_trunc('month',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')::int AS month_requests,
+      coalesce(sum(reserved_tokens) FILTER (WHERE created_at >= date_trunc('month',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow'),0)::int AS month_reserved
+      FROM smm.studio_requests WHERE owner_id=$1`,[c.get('userId')])
+    return c.json({ok:true,mode:'simulation',dayLimit:5,monthLimit:30,monthTokenLimit:120000,realTokens:0,chargedKopecks:0,...q.rows[0]})
+  })
+  app.post('/studio/simulate',async c=>{
+    const owner=c.get('userId'),input=await c.req.json().catch(()=>null),id=input?.requestId
+    if(typeof id!=='string'||!uuid.test(id)||input?.confirm!==true)return c.json({ok:false,error:'explicit_confirmation_required'},400)
+    const result=await transaction(pool(),async db=>{
+      await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,8317))',[owner])
+      const existing=await db.query('SELECT state FROM smm.studio_requests WHERE owner_id=$1 AND request_id=$2',[owner,id])
+      if(existing.rowCount)return 'duplicate'
+      const counts=await db.query(`SELECT count(*) FILTER (WHERE created_at >= date_trunc('day',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')::int AS d,
+        count(*) FILTER (WHERE created_at >= date_trunc('month',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')::int AS m,
+        coalesce(sum(reserved_tokens) FILTER (WHERE created_at >= date_trunc('month',now() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow'),0)::int AS t,
+        count(*) FILTER (WHERE state='reserved')::int AS active FROM smm.studio_requests WHERE owner_id=$1`,[owner])
+      const n=counts.rows[0]
+      if(n.active>0)return 'busy'
+      if(n.d>=5||n.m>=30||n.t+4000>120000)return 'limit'
+      await db.query("INSERT INTO smm.studio_requests(owner_id,request_id,mode,reserved_tokens,state) VALUES($1,$2,'simulation',4000,'reserved')",[owner,id])
+      await db.query("UPDATE smm.studio_requests SET state='completed',actual_tokens=0 WHERE owner_id=$1 AND request_id=$2",[owner,id])
+      return 'ok'
+    })
+    if(result==='duplicate'||result==='busy')return c.json({ok:false,error:result},409)
+    if(result==='limit')return c.json({ok:false,error:'simulation_limit'},429)
+    return c.json({ok:true,mode:'simulation',text:'ТЕСТОВЫЙ МАКЕТ. Это не ответ нейросети. Проверка прохождения запроса и лимитов завершена.',realTokens:0,externalRequests:0,chargedKopecks:0})
+  })
+  const personalEnabled=()=>Boolean(personalEnv && personalEnv.OXANA_STAGING_SMOKE_ONLY==='true' && personalEnv.OXANA_SMM_STAGING_AUTH==='true' && personalEnv.OXANA_SMM_PERSONAL_SMOKE==='true' && personalEnv.GIGACHAT_SCOPE==='GIGACHAT_API_PERS' && personalEnv.GIGACHAT_AUTH_KEY?.trim())
+  app.get('/studio/personal/status',async c=>{
+    if(!personalEnv)return c.json({ok:true,enabled:false,state:'disabled',totalTokens:null})
+    const r=await pool().query('SELECT owner_id,state,total_tokens FROM smm.personal_smoke WHERE singleton=true')
+    const row=r.rows[0]
+    return c.json({ok:true,enabled:personalEnabled()&&!row,state:row?(row.owner_id===c.get('userId')?row.state:'unavailable'):'unused',totalTokens:row?.owner_id===c.get('userId')?row.total_tokens:null})
+  })
+  app.post('/studio/personal/run',async c=>{
+    if(!personalEnabled()||!personalEnv)return c.json({ok:false,error:'personal_smoke_disabled'},403)
+    const input=await c.req.json().catch(()=>null)
+    if(!input||input.confirm!==true||Object.keys(input).length!==1)return c.json({ok:false,error:'explicit_confirmation_required'},400)
+    const owner=c.get('userId')
+    // Commit reservation BEFORE network activity. Never clear it on timeout or crash.
+    const reservation=await pool().query("INSERT INTO smm.personal_smoke(singleton,owner_id,state) VALUES(true,$1,'reserved') ON CONFLICT DO NOTHING RETURNING singleton",[owner])
+    if(!reservation.rowCount)return c.json({ok:false,error:'personal_smoke_already_used'},409)
+    try {
+      const result=await personalSmoke('Lite',personalEnv)
+      await pool().query("UPDATE smm.personal_smoke SET state='completed',total_tokens=$2,finished_at=now() WHERE singleton=true AND owner_id=$1 AND state='reserved'",[owner,result.totalTokens])
+      return c.json({ok:true,mode:'personal_smoke',...result})
+    } catch {
+      await pool().query("UPDATE smm.personal_smoke SET state='uncertain',finished_at=now() WHERE singleton=true AND owner_id=$1 AND state='reserved'",[owner])
+      return c.json({ok:false,error:'personal_smoke_outcome_unknown_no_retry'},502)
+    }
+  })
+  app.post('/studio/generate',c=>c.json({ok:false,error:'paid_generation_disabled'},403))
+  // No publisher, scheduler, media or external AI calls in this version.
+  app.post('/posts/:id/publish',c=>c.json({ok:false,error:'publication_disabled'},403))
+  return app
+}

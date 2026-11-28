@@ -1,0 +1,61 @@
+name: SMM isolated checks
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    if: github.head_ref == 'feature/oxana-smm' || github.ref == 'refs/heads/feature/oxana-smm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OXANA_SMM_ENABLED: 'false'
+      OXANA_REMINDERS: disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:pii
+      - run: npm ci
+        working-directory: server
+      - run: npm run typecheck
+        working-directory: server
+      - run: npm run test:smm
+        working-directory: server
+      - run: npm test
+        working-directory: server
+  postgres:
+    if: github.head_ref == 'feature/oxana-smm' || github.ref == 'refs/heads/feature/oxana-smm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: smm_ci
+          POSTGRES_USER: smm_ci
+          POSTGRES_PASSWORD: smm_ci_test_only
+        ports:
+          - 55439:5432
+        options: >-
+          --health-cmd "pg_isready -U smm_ci -d smm_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+        working-directory: server
+      - run: npx --no-install tsx --test src/smm/routes.pg.test.ts
+        working-directory: server
+        env:
+          SMM_TEST_DB: disposable-local-ci
+          OXANA_REMINDERS: disable
