@@ -1,4 +1,6 @@
 import { serve } from '@hono/node-server'
+import { createMunicipalScheduler } from './smm/municipalScheduler.js'
+import { getOxanaPool } from './oxana/db.js'
 import { createSmmStagingApp } from './smm/staging.js'
 import { closePiiPool } from './db.js'
 import { resolveListenOptions } from './listen.js'
@@ -10,11 +12,13 @@ import {
 } from './oxana/reminderScheduler.js'
 
 const isolatedSmoke = process.env.OXANA_STAGING_SMOKE_ONLY === 'true'
-const app = isolatedSmoke ? createSmmStagingApp() : (await import('./app.js')).createApp()
+const municipal = createMunicipalScheduler(process.env,getOxanaPool)
+const app = isolatedSmoke ? createSmmStagingApp(process.env,getOxanaPool,municipal) : (await import('./app.js')).createApp()
 const { port, hostname } = resolveListenOptions()
 
 const server = serve({ fetch: app.fetch, port, hostname }, () => {
   if (!isolatedSmoke) startOxanaReminderScheduler()
+  else municipal.start()
   console.info(
     JSON.stringify({
       event: 'pii_api_listen',
@@ -34,6 +38,7 @@ async function shutdown(signal: string) {
   shuttingDown = true
   console.info(JSON.stringify({ event: 'api_shutdown', signal }))
   stopOxanaReminderScheduler()
+  await municipal.stop()
   await new Promise<void>((resolve) => {
     server.close(() => resolve())
     setTimeout(resolve, 5000).unref?.()
