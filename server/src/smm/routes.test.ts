@@ -86,7 +86,7 @@ test('municipal source address triage never treats neighboring house numbers as 
  assert.equal(candidate?.addressMatch,'exact_house')
 })
 
-import { discoverLinks, parseMunicipalArticle, probeMunicipalSources } from './municipalReader.js'
+import { discoverLinks, parseMunicipalArticle, probeMunicipalSources, titleDate } from './municipalReader.js'
 test('municipal parsing is conservative and external links are rejected',async()=>{
  const base='https://vodokanalryazan.ru/press-tsentr/remontnye-raboty',path='/press-tsentr/remontnye-raboty/'
  const url=base+'/otklyuchenie-test'
@@ -99,4 +99,16 @@ test('municipal parsing is conservative and external links are rejected',async()
  const result=await probeMunicipalSources(mock)
  assert.equal(result[0].articles[0].addressMatch,'street_review')
  assert.equal(result[1].diagnostic,'http_302')
+})
+
+test('municipal title dates reject impossible calendar dates and scan all ten links',async()=>{
+ assert.equal(titleDate('Отключение 27.11.2026'),'2026-11-27')
+ assert.equal(titleDate('Отключение 31.02.2026'),null)
+ assert.equal(titleDate('Дата неизвестна'),null)
+ const base='https://vodokanalryazan.ru/press-tsentr/remontnye-raboty'
+ const html=Array.from({length:12},(_,i)=>'<a href="'+base+'/otklyuchenie-'+i+'">test</a>').join('')
+ const mock:typeof fetch=async input=>String(input)===base?new Response(html,{headers:{'content-type':'text/html'}}):String(input).startsWith(base+'/')?new Response('<h1>Отключение 27.11.2026</h1><article>Васильевский проезд, д. 3</article>',{headers:{'content-type':'text/html'}}):new Response('',{status:503})
+ const result=await probeMunicipalSources(mock)
+ assert.equal(result[0].articles.length,10)
+ assert.equal(result[0].articles.every(a=>a.addressMatch==='exact_house'),true)
 })
