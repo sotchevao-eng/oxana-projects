@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { createSmmRouter } from './routes.js'
 import { getOxanaPool } from '../oxana/db.js'
 import type { Pool } from 'pg'
+import { stagingHtml, stagingCss, stagingJs } from './stagingUi.js'
 
 export const STAGING_USER = '11111111-1111-4111-8111-111111111111'
 
@@ -40,6 +41,17 @@ export function createSmmStagingApp(
       const digest = createHash('sha256').update(token, 'utf8').digest()
       return timingSafeEqual(digest, Buffer.from(hash,'hex')) ? STAGING_USER : null
     }
+  }
+  if (env.OXANA_SMM_ENABLED === 'true') {
+    app.use('/smm-test/*', async (c,next) => {
+      c.header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+      c.header('X-Content-Type-Options','nosniff')
+      c.header('Referrer-Policy','no-referrer')
+      await next()
+    })
+    app.get('/smm-test/', c => c.html(stagingHtml))
+    app.get('/smm-test/style.css', c => c.text(stagingCss,200,{'Content-Type':'text/css; charset=utf-8'}))
+    app.get('/smm-test/app.js', c => c.text(stagingJs,200,{'Content-Type':'application/javascript; charset=utf-8'}))
   }
   app.route('/api/smm', createSmmRouter(verifier, pool, () => env.OXANA_SMM_ENABLED === 'true'))
   app.onError((_error,c) => c.json({ok:false,error:'staging_request_failed'},500))
