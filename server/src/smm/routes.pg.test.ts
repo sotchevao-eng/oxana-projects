@@ -56,7 +56,7 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
       await saveMunicipalScan(scanDb,A,scan)
       assert.equal((await scanDb.query('SELECT count(*)::int AS n FROM smm.municipal_notices WHERE owner_id=$1',[A])).rows[0].n,1)
       assert.equal((await scanDb.query('SELECT count(*)::int AS n FROM smm.municipal_checks WHERE owner_id=$1',[A])).rows[0].n,2)
-      await saveMunicipalScan(scanDb,A,[{...scan[0],articles:[{...scan[0].articles[0],title:'Ошибка чтения',status:'network_error',addressMatch:'unknown'}]}])
+      await saveMunicipalScan(scanDb,A,[{...scan[0],articles:[{url:scan[0].articles[0].url,title:'Ошибка чтения',status:'network_error',addressMatch:'unknown'}]}])
       assert.equal((await scanDb.query('SELECT title FROM smm.municipal_notices WHERE owner_id=$1',[A])).rows[0].title,'Тест 27.11.2026')
     } finally {scanDb.release()}
     const app=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:token==='owner-b'?B:null},()=>runtime,()=>true)
