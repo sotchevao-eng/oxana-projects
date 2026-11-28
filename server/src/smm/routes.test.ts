@@ -112,3 +112,14 @@ test('municipal title dates reject impossible calendar dates and scan all ten li
  assert.equal(result[0].articles.length,10)
  assert.equal(result[0].articles.every(a=>a.addressMatch==='exact_house'),true)
 })
+
+test('expanded municipal discovery accepts only allowed source links and is opt-in',async()=>{
+ const path='/potrebitelyam/peredacha-elektricheskoy-energii/planovye-i-avariynye-otklyucheniya-elektricheskoy-energii.php'
+ const base='https://gorseti62.ru'+path
+ assert.deepEqual(discoverLinks('<a href="?ELEMENT_ID=123">ok</a><a href="?ELEMENT_ID=123&other=1">bad</a><a href="https://example.org'+path+'?ELEMENT_ID=123">bad</a>',base,path),[base+'?ELEMENT_ID=123'])
+ const gas='https://ryazangorgaz.ru/press-center/informacija-dlja-abonentov/'
+ assert.deepEqual(discoverLinks('<a href="'+gas+'grafik-test">ok</a><a href="'+gas+'contacts">bad</a>',gas,new URL(gas).pathname),[gas+'grafik-test'])
+ const mock:typeof fetch=async()=>new Response('',{status:503})
+ assert.equal((await probeMunicipalSources(mock)).length,2)
+ assert.deepEqual((await probeMunicipalSources(mock,true)).map(s=>s.id),['water-ryazan','city-ryazan','rgres-ryazan','gas-ryazan'])
+})
