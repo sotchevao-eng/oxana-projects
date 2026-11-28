@@ -8,6 +8,8 @@ export const monitoringSources = [
  {id:'gis-housing',group:'home',name:'ГИС ЖКХ',url:'https://dom.gosuslugi.ru/',topic:'Жилищно-коммунальное хозяйство'},
  {id:'law-home',group:'home',name:'Официальное опубликование правовых актов',url:'https://publication.pravo.gov.ru/',topic:'Жилищное законодательство'},
  {id:'water-ryazan',group:'home',name:'Водоканал Рязани',url:'https://vodokanalryazan.ru/press-tsentr/remontnye-raboty',topic:'Отключения холодной воды'},
+ {id:'rgres-ryazan',group:'home',name:'АО РГРЭС',url:'https://gorseti62.ru/potrebitelyam/peredacha-elektricheskoy-energii/planovye-i-avariynye-otklyucheniya-elektricheskoy-energii.php',topic:'Отключения и восстановление электроснабжения'},
+ {id:'resk-ryazan',group:'home',name:'ПАО РЭСК',url:'https://resk.ru/',topic:'Плановые и аварийные отключения'},
  {id:'energy-ryazan',group:'home',name:'Р-Энергия',url:'https://r-energiya.ru/private-clients/elektrosnabzhenie/avarijnye-sluzhby-setevyh-organizacij-kopiya.html',topic:'Электроснабжение и аварийные службы'},
  {id:'city-ryazan',group:'home',name:'Администрация Рязани',url:'https://www.admrzn.ryazan.gov.ru/announcements/',topic:'Объявления об отключениях'},
  {id:'gas-ryazan',group:'home',name:'Рязаньгоргаз',url:'https://ryazangorgaz.ru/press-center/informacija-dlja-abonentov/',topic:'Газоснабжение, ремонт и графики техобслуживания'},
