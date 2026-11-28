@@ -29,3 +29,15 @@ test('only community post ID is passed to database; unrelated events ignored',as
  const failure=await request(broken,event)
  assert.equal(failure.status,503);assert.equal(await failure.text(),'retry')
 })
+
+test('mounted public callback returns exact plain text over both expected URL forms',async()=>{
+ const { Hono }=await import('hono')
+ const app=new Hono({strict:false})
+ app.route('/api/vk/tsg-callback',createTsgCallback(env,()=>{throw Error('unexpected database call')}))
+ for(const path of ['/api/vk/tsg-callback','/api/vk/tsg-callback/']){
+  const r=await app.request(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({group_id,secret,type:'confirmation',v:'5.199',event_id:'synthetic'})})
+  assert.equal(r.status,200)
+  assert.match(r.headers.get('content-type')??'',/^text\/plain(?:;|$)/i)
+  assert.deepEqual(Buffer.from(await r.arrayBuffer()),Buffer.from(env.VK_TSG_CALLBACK_CONFIRMATION,'utf8'))
+ }
+})
