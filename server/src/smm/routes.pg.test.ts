@@ -23,10 +23,11 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-001.sql',import.meta.url),'utf8'))
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-002.sql',import.meta.url),'utf8'))
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-003.sql',import.meta.url),'utf8'))
+    await pool.query(await readFile(new URL('../../../russian-postgres/smm-004.sql',import.meta.url),'utf8'))
     await pool.query("CREATE ROLE smm_runtime LOGIN PASSWORD 'smm_runtime_test_only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT")
-    await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.plan_items,smm.studio_requests TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
+    await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.plan_items,smm.studio_requests,smm.personal_smoke TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
     assert.equal((await runtime.query('SELECT current_user AS role')).rows[0].role,'smm_runtime')
-    for (const sql of ['DELETE FROM smm.studio_requests','DELETE FROM smm.plan_items','DELETE FROM smm.communities','UPDATE smm.post_versions SET body=body','DELETE FROM smm.approvals','SELECT * FROM smm.budget_limits','SELECT * FROM smm.audit_logs','CREATE TABLE smm.forbidden(id int)']) {
+    for (const sql of ['DELETE FROM smm.personal_smoke','DELETE FROM smm.studio_requests','DELETE FROM smm.plan_items','DELETE FROM smm.communities','UPDATE smm.post_versions SET body=body','DELETE FROM smm.approvals','SELECT * FROM smm.budget_limits','SELECT * FROM smm.audit_logs','CREATE TABLE smm.forbidden(id int)']) {
       await assert.rejects(runtime.query(sql), {code:'42501'})
     }
     const app=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:token==='owner-b'?B:null},()=>runtime,()=>true)
@@ -41,6 +42,19 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
     assert.equal((await call('/communities/'+cid,'PATCH',{name:'Unauthorized',editorialPolicy:''},'owner-b')).status,404)
     assert.equal((await call('/communities/'+cid,'PATCH',{name:'Updated group',editorialPolicy:'Synthetic policy'})).status,200)
     assert.equal((await call('/posts','POST',{communityId:cid,body:'Foreign draft'},'owner-b')).status,404)
+    assert.equal((await call('/studio/personal/run','POST',{confirm:true})).status,403)
+    const personalEnv={OXANA_STAGING_SMOKE_ONLY:'true',OXANA_SMM_STAGING_AUTH:'true',OXANA_SMM_PERSONAL_SMOKE:'true',GIGACHAT_SCOPE:'GIGACHAT_API_PERS',GIGACHAT_AUTH_KEY:'synthetic-no-network'}
+    const isolated=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:null},()=>runtime,()=>true,personalEnv)
+    const personalHeaders={Authorization:'Bearer owner-a','Content-Type':'application/json'}
+    const initial=await isolated.request('/studio/personal/status',{headers:personalHeaders})
+    assert.equal((await initial.json()).enabled,true)
+    assert.equal((await isolated.request('/studio/personal/run',{method:'POST',headers:personalHeaders,body:JSON.stringify({confirm:true,topic:'not allowed'})})).status,400)
+    // Pre-reserve without calling network; verifies fail-closed after interrupted request.
+    await runtime.query("INSERT INTO smm.personal_smoke(owner_id,state) VALUES($1,'reserved')",[A])
+    const blocked=await isolated.request('/studio/personal/run',{method:'POST',headers:personalHeaders,body:JSON.stringify({confirm:true})})
+    assert.equal(blocked.status,409)
+    const after=await isolated.request('/studio/personal/status',{headers:personalHeaders})
+    assert.equal((await after.json()).enabled,false)
     const studio={communityId:cid,topic:'Synthetic studio topic',tone:'expert',length:'medium'}
     const studioStatus=await call('/studio/status')
     assert.equal(studioStatus.data.monthlyLimitKopecks,0)
