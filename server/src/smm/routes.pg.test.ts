@@ -29,8 +29,11 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-005.sql',import.meta.url),'utf8'))
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-006.sql',import.meta.url),'utf8'))
     await pool.query(await readFile(new URL('../../../russian-postgres/smm-007.sql',import.meta.url),'utf8'))
+    await pool.query(await readFile(new URL('../../../russian-postgres/smm-008.sql',import.meta.url),'utf8'))
     await pool.query("CREATE ROLE smm_runtime LOGIN PASSWORD 'smm_runtime_test_only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT")
     await pool.query("GRANT USAGE ON SCHEMA smm TO smm_runtime; GRANT SELECT,INSERT ON smm.communities,smm.posts,smm.post_versions,smm.approvals TO smm_runtime; GRANT UPDATE ON smm.communities,smm.posts TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.plan_items,smm.studio_requests,smm.personal_smoke TO smm_runtime; GRANT SELECT,INSERT ON smm.tsg_callback_events TO smm_runtime; GRANT SELECT,INSERT ON smm.municipal_checks TO smm_runtime; GRANT SELECT,INSERT,UPDATE ON smm.municipal_notices TO smm_runtime; GRANT USAGE ON SEQUENCE smm.municipal_checks_id_seq TO smm_runtime; GRANT INSERT ON smm.audit_logs TO smm_runtime; GRANT USAGE ON SEQUENCE smm.audit_logs_id_seq TO smm_runtime")
+    await pool.query("GRANT SELECT,INSERT,UPDATE ON smm.municipal_notification_reads TO smm_runtime")
+    await assert.rejects(runtime.query("DELETE FROM smm.municipal_notification_reads"),{code:"42501"})
     assert.equal((await runtime.query('SELECT current_user AS role')).rows[0].role,'smm_runtime')
     for (const sql of ['DELETE FROM smm.personal_smoke','DELETE FROM smm.studio_requests','DELETE FROM smm.plan_items','DELETE FROM smm.communities','UPDATE smm.post_versions SET body=body','DELETE FROM smm.approvals','SELECT * FROM smm.budget_limits','SELECT * FROM smm.audit_logs','CREATE TABLE smm.forbidden(id int)']) {
       await assert.rejects(runtime.query(sql), {code:'42501'})
@@ -68,6 +71,33 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
       const response=await app.request(path,{method,headers:{Authorization:'Bearer '+owner,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})})
       return {status:response.status,data:await response.json() as any}
     }
+    const notificationApp=createSmmRouter({provider:'test',verifyAccessToken:async token=>token==='owner-a'?A:token==='owner-b'?B:null},()=>runtime,()=>true,{OXANA_STAGING_SMOKE_ONLY:'true',OXANA_SMM_STAGING_AUTH:'true'})
+    async function notify(path:string,owner='owner-a',body?:unknown){
+      const response=await notificationApp.request(path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+owner,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})})
+      return {status:response.status,data:await response.json() as any}
+    }
+    assert.equal((await notificationApp.request('/notifications')).status,401)
+    assert.equal((await call('/notifications')).status,403)
+    const initialFeed=await notify('/notifications')
+    assert.equal(initialFeed.status,200)
+    assert.equal(initialFeed.data.items.length,1)
+    assert.equal(initialFeed.data.items[0].read,false)
+    const n=initialFeed.data.items[0]
+    const receipt={sourceId:n.source_id,url:n.url,version:n.version}
+    assert.equal((await notify('/notifications','owner-b')).data.items.length,0)
+    assert.equal((await notify('/notifications/read','owner-b',receipt)).status,409)
+    assert.equal((await notify('/notifications/read','owner-a',receipt)).status,200)
+    assert.equal((await notify('/notifications/read','owner-a',receipt)).status,200)
+    const noticeDb=await runtime.connect()
+    try{await saveMunicipalScan(noticeDb,A,scan)}finally{noticeDb.release()}
+    assert.equal((await notify('/notifications')).data.items[0].read,true)
+    await runtime.query("UPDATE smm.municipal_notices SET title='Updated synthetic notice',last_changed=last_changed+interval '1 second' WHERE owner_id=$1 AND url=$2",[A,n.url])
+    const changedFeed=await notify('/notifications')
+    assert.equal(changedFeed.data.items.length,1)
+    assert.equal(changedFeed.data.items[0].read,false)
+    assert.equal((await notify('/notifications/read','owner-a',receipt)).status,409)
+    assert.equal((await notify('/notifications/read','owner-a',{...receipt,version:changedFeed.data.items[0].version})).status,200)
+    assert.equal((await notify('/notifications')).data.items[0].read,true)
     const c=await call('/communities','POST',{name:'Synthetic group',editorialPolicy:''})
     assert.equal(c.status,201)
     const cid=c.data.community.id as string
