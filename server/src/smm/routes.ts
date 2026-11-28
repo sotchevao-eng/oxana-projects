@@ -52,6 +52,27 @@ export function createSmmRouter(
   })
   app.get('/studio/providers', c => c.json(providerCatalog()))
   app.get('/monitoring/sources', c => c.json(monitoringCatalog()))
+  app.get('/notifications',async c=>{
+    if(personalEnv?.OXANA_STAGING_SMOKE_ONLY!=='true'||personalEnv?.OXANA_SMM_STAGING_AUTH!=='true')return c.json({ok:false,error:'notifications_disabled'},403)
+    const result=await pool().query(`SELECT n.source_id,n.url,n.title,n.title_date::text,n.address_match,n.last_changed::text AS version,
+      COALESCE(r.seen_version=n.last_changed,false) AS read
+      FROM smm.municipal_notices n LEFT JOIN smm.municipal_notification_reads r USING(owner_id,source_id,url)
+      WHERE n.owner_id=$1 AND n.address_match IN ('exact_house','street_review')
+      ORDER BY n.last_changed DESC,n.source_id,n.url LIMIT 100`,[c.get('userId')])
+    return c.json({ok:true,items:result.rows,externalDelivery:false})
+  })
+  app.post('/notifications/read',async c=>{
+    if(personalEnv?.OXANA_STAGING_SMOKE_ONLY!=='true'||personalEnv?.OXANA_SMM_STAGING_AUTH!=='true')return c.json({ok:false,error:'notifications_disabled'},403)
+    const x=await c.req.json().catch(()=>null)
+    if(!x||Object.keys(x).length!==3||!field(x.sourceId,64)||!field(x.url,2000)||!field(x.version,80))return c.json({ok:false,error:'invalid_notification'},400)
+    const result=await pool().query(`INSERT INTO smm.municipal_notification_reads AS r(owner_id,source_id,url,seen_version)
+      SELECT owner_id,source_id,url,last_changed FROM smm.municipal_notices
+      WHERE owner_id=$1 AND source_id=$2 AND url=$3 AND last_changed::text=$4 AND address_match IN ('exact_house','street_review')
+      ON CONFLICT(owner_id,source_id,url) DO UPDATE SET seen_version=EXCLUDED.seen_version,read_at=now()
+      WHERE r.seen_version<=EXCLUDED.seen_version RETURNING source_id`,[c.get('userId'),x.sourceId,x.url,x.version])
+    if(!result.rowCount)return c.json({ok:false,error:'notification_version_changed_or_missing'},409)
+    return c.json({ok:true})
+  })
   app.get('/monitoring/journal',async c=>{
     if(personalEnv?.OXANA_STAGING_SMOKE_ONLY!=='true'||personalEnv?.OXANA_SMM_STAGING_AUTH!=='true')return c.json({ok:false,error:'journal_disabled'},403)
     const owner=c.get('userId')
