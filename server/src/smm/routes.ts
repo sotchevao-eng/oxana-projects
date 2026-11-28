@@ -3,6 +3,7 @@ import { createRequireOxanaOwner } from '../oxana/auth.js'
 import { createConfiguredTokenVerifier, type TokenVerifier } from '../oxana/tokenVerifier.js'
 import { getOxanaPool } from '../oxana/db.js'
 import type { Pool, PoolClient } from 'pg'
+import { personalSmoke } from './personalSmoke.js'
 import { isGigachatConfigured } from '../oxana/gigachatClient.js'
 
 type Env = { Variables: { userId: string } }
@@ -36,6 +37,7 @@ export function createSmmRouter(
   verifier: TokenVerifier = createConfiguredTokenVerifier(),
   pool: () => Pool = getOxanaPool,
   enabled: () => boolean = () => process.env.OXANA_SMM_ENABLED === 'true',
+  personalEnv?: NodeJS.ProcessEnv,
 ) {
   const app = new Hono<Env>()
   app.use('*', createRequireOxanaOwner(verifier))
@@ -210,6 +212,30 @@ export function createSmmRouter(
     if(result==='duplicate'||result==='busy')return c.json({ok:false,error:result},409)
     if(result==='limit')return c.json({ok:false,error:'simulation_limit'},429)
     return c.json({ok:true,mode:'simulation',text:'ТЕСТОВЫЙ МАКЕТ. Это не ответ нейросети. Проверка прохождения запроса и лимитов завершена.',realTokens:0,externalRequests:0,chargedKopecks:0})
+  })
+  const personalEnabled=()=>Boolean(personalEnv && personalEnv.OXANA_STAGING_SMOKE_ONLY==='true' && personalEnv.OXANA_SMM_STAGING_AUTH==='true' && personalEnv.OXANA_SMM_PERSONAL_SMOKE==='true' && personalEnv.GIGACHAT_SCOPE==='GIGACHAT_API_PERS' && personalEnv.GIGACHAT_AUTH_KEY?.trim())
+  app.get('/studio/personal/status',async c=>{
+    if(!personalEnv)return c.json({ok:true,enabled:false,state:'disabled',totalTokens:null})
+    const r=await pool().query('SELECT owner_id,state,total_tokens FROM smm.personal_smoke WHERE singleton=true')
+    const row=r.rows[0]
+    return c.json({ok:true,enabled:personalEnabled()&&!row,state:row?(row.owner_id===c.get('userId')?row.state:'unavailable'):'unused',totalTokens:row?.owner_id===c.get('userId')?row.total_tokens:null})
+  })
+  app.post('/studio/personal/run',async c=>{
+    if(!personalEnabled()||!personalEnv)return c.json({ok:false,error:'personal_smoke_disabled'},403)
+    const input=await c.req.json().catch(()=>null)
+    if(!input||input.confirm!==true||Object.keys(input).length!==1)return c.json({ok:false,error:'explicit_confirmation_required'},400)
+    const owner=c.get('userId')
+    // Commit reservation BEFORE network activity. Never clear it on timeout or crash.
+    const reservation=await pool().query("INSERT INTO smm.personal_smoke(singleton,owner_id,state) VALUES(true,$1,'reserved') ON CONFLICT DO NOTHING RETURNING singleton",[owner])
+    if(!reservation.rowCount)return c.json({ok:false,error:'personal_smoke_already_used'},409)
+    try {
+      const result=await personalSmoke('Lite',personalEnv)
+      await pool().query("UPDATE smm.personal_smoke SET state='completed',total_tokens=$2,finished_at=now() WHERE singleton=true AND owner_id=$1 AND state='reserved'",[owner,result.totalTokens])
+      return c.json({ok:true,mode:'personal_smoke',...result})
+    } catch {
+      await pool().query("UPDATE smm.personal_smoke SET state='uncertain',finished_at=now() WHERE singleton=true AND owner_id=$1 AND state='reserved'",[owner])
+      return c.json({ok:false,error:'personal_smoke_outcome_unknown_no_retry'},502)
+    }
   })
   app.post('/studio/generate',c=>c.json({ok:false,error:'paid_generation_disabled'},403))
   // No publisher, scheduler, media or external AI calls in this version.
