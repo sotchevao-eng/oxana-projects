@@ -59,7 +59,7 @@ test('SMM PostgreSQL: migration, owner isolation, versions, approval and concurr
       assert.equal((await scanDb.query('SELECT count(*)::int AS n FROM smm.municipal_checks WHERE owner_id=$1',[A])).rows[0].n,2)
       await saveMunicipalScan(scanDb,A,[{id:'water-ryazan',status:'links_found',links:[scan[0].articles[0].url],diagnostic:null,articles:[{url:scan[0].articles[0].url,title:'Ошибка чтения',status:'network_error',addressMatch:'unknown'}]}])
       assert.equal((await scanDb.query('SELECT title FROM smm.municipal_notices WHERE owner_id=$1',[A])).rows[0].title,'Тест 27.11.2026')
-      await saveMunicipalScan(scanDb,A,[{id:'rgres-ryazan',status:'links_found',links:['https://gorseti62.ru/test'],diagnostic:null,articles:[{url:'https://gorseti62.ru/test',title:'Тест электричества',titleDate:null,addressMatch:'unknown',status:'parser_review'}]},{id:'gas-ryazan',status:'unavailable',links:[],articles:[],diagnostic:'network_error'}])
+      await saveMunicipalScan(scanDb,A,[{id:'rgres-ryazan',status:'links_found',links:['https://gorseti62.ru/test'],diagnostic:null,articles:[{url:'https://gorseti62.ru/test',title:'Тест электричества',addressMatch:'unknown',status:'parser_review'}]},{id:'gas-ryazan',status:'unavailable',links:[],articles:[],diagnostic:'network_error'}])
       assert.equal((await scanDb.query("SELECT count(*)::int AS n FROM smm.municipal_checks WHERE source_id IN ('rgres-ryazan','gas-ryazan')")).rows[0].n,2)
       await assert.rejects(scanDb.query("INSERT INTO smm.municipal_checks(owner_id,source_id,status,link_count,article_count) VALUES($1,'unknown-source','unavailable',0,0)",[A]),{code:'23514'})
     } finally {scanDb.release()}
